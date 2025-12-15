@@ -20,7 +20,9 @@ export const processJob = async (job: Job, updateJob: (id: string, partial: Part
     const pythonScript = path.join((process as any).cwd(), 'ai_service.py');
     
     await new Promise<void>((resolve, reject) => {
-      const python = spawn('python', [pythonScript, inputPath, srtPath]);
+      const python = spawn("python", [pythonScript, inputPath, srtPath], {
+        env: process.env,
+      });
 
       python.stdout.on('data', (data) => {
         const lines = data.toString().split('\n');

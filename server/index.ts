@@ -1,3 +1,8 @@
+import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+
 import express, { Request, Response, RequestHandler, NextFunction } from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -38,7 +43,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ 
   storage,
-  limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 } // 2GB limit
 });
 
 // Routes
