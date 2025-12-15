@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
 import { Job, Cue } from './types.js';
-import { formatSrtTime, SIMULATED_TRANSCRIPT } from './utils.js';
+import { parseSrt } from './utils.js';
 
 const DATA_DIR = path.resolve((process as any).cwd(), 'data');
 
@@ -14,68 +15,94 @@ export const processJob = async (job: Job, updateJob: (id: string, partial: Part
   const burnVideoPath = path.join(jobDir, 'output_burned.mp4');
 
   try {
-    // 1. Transcribe (Simulated)
-    updateJob(job.id, { status: 'processing', stage: 'transcribe', progress: 10, message: 'Extracting audio & transcribing...' });
-    await new Promise(r => setTimeout(r, 2000)); // Fake processing time
-
-    // 2. Translate (Simulated)
-    updateJob(job.id, { stage: 'translate', progress: 30, message: 'Translating content to Chinese...' });
-    await new Promise(r => setTimeout(r, 2000)); // Fake processing time
-
-    // 3. Generate SRT
-    updateJob(job.id, { stage: 'srt', progress: 50, message: 'Formatting bilingual subtitles...' });
+    // --- STEP 1, 2, 3: AI Service (Transcribe -> Translate -> SRT) ---
+    // We spawn a Python process to handle the heavy AI lifting
+    const pythonScript = path.join((process as any).cwd(), 'ai_service.py');
     
-    const cues: Cue[] = SIMULATED_TRANSCRIPT.map(t => ({
-      start: formatSrtTime(t.start),
-      end: formatSrtTime(t.end),
-      en: t.en,
-      zh: t.zh
-    }));
+    await new Promise<void>((resolve, reject) => {
+      const python = spawn('python', [pythonScript, inputPath, srtPath]);
 
-    const srtContent = cues.map((cue, index) => {
-      return `${index + 1}\n${cue.start} --> ${cue.end}\n${cue.en}\n${cue.zh}\n`;
-    }).join('\n');
+      python.stdout.on('data', (data) => {
+        const lines = data.toString().split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.stage) {
+              updateJob(job.id, { 
+                stage: msg.stage, 
+                progress: msg.progress, 
+                message: msg.message 
+              });
+            }
+          } catch (e) {
+            // Ignore non-JSON stdout (debugging logs from python)
+            console.log(`[Python Log]: ${line}`);
+          }
+        }
+      });
 
-    fs.writeFileSync(srtPath, srtContent, 'utf-8');
+      let errorOutput = '';
+      python.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+        console.error(`[Python Error]: ${data}`);
+      });
 
-    // 4. Render Soft Subs (Muxing)
-    updateJob(job.id, { stage: 'render_soft', progress: 60, message: 'Muxing soft subtitles stream...' });
+      python.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`AI Service failed: ${errorOutput || 'Unknown error'}`));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    // Read the generated SRT to create the preview
+    if (!fs.existsSync(srtPath)) {
+      throw new Error("SRT file was not generated.");
+    }
+    const srtContent = fs.readFileSync(srtPath, 'utf-8');
+    const cues = parseSrt(srtContent).slice(0, 50); // Preview first 50 cues
+
+    // --- STEP 4: Render Soft Subs (Muxing) ---
+    updateJob(job.id, { stage: 'render_soft', progress: 85, message: 'Muxing soft subtitles stream...' });
     
     await new Promise<void>((resolve, reject) => {
       ffmpeg()
         .input(inputPath)
         .input(srtPath)
         .outputOptions('-c copy') 
-        .outputOptions('-c:s mov_text') // Basic mp4 subtitle codec
+        .outputOptions('-c:s mov_text') // Standard MP4 subtitle codec
         .save(softVideoPath)
         .on('end', () => resolve())
         .on('error', (err) => reject(new Error(`Soft sub failed: ${err.message}`)));
     });
 
-    // 5. Render Hard Subs (Burning)
-    // Note: Burning requires re-encoding, so it's slower.
-    updateJob(job.id, { stage: 'render_burn', progress: 80, message: 'Burning subtitles into video (this may take a while)...' });
-    
-    // We must escape the path for ffmpeg filter
-    // On Windows/Linux handling can differ, fluent-ffmpeg handles mostly but complex filters need care.
-    // We use relative path to avoid some escaping hell in filters if possible, or simple standard path.
-    // For robustness in this demo, we might skip complex font checks and use default font.
-    // Warning: 'subtitles' filter requires a fairly modern ffmpeg build.
+    // --- STEP 5: Render Hard Subs (Burning) ---
+    updateJob(job.id, { stage: 'render_burn', progress: 90, message: 'Burning subtitles (this takes time)...' });
     
     await new Promise<void>((resolve, reject) => {
-       // Escape colons and backslashes for the filter string
+       // Escape path for ffmpeg filter: replace backslashes with forward slashes, escape colons
+       // On Windows, paths like C:\foo need to become C\:/foo in some contexts, 
+       // but fluent-ffmpeg + standard filter syntax usually works best with forward slashes.
        const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
 
+       // Use force_style to ensure a readable font. 
+       // 'Arial Unicode MS' or 'Noto Sans CJK SC' covers Chinese. 
+       // If not found, FFmpeg usually falls back or shows boxes, but standard defaults often work.
+       // Outline and generic sans-serif is a safe baseline.
+       const style = "Fontname=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=20";
+
        ffmpeg(inputPath)
-         .outputOptions('-vf', `subtitles='${escapedSrtPath}':force_style='Fontsize=18,PrimaryColour=&H00FFFFFF,BackColour=&H80000000,BorderStyle=3'`)
+         .outputOptions('-vf', `subtitles='${escapedSrtPath}':force_style='${style}'`)
          .videoCodec('libx264')
-         .audioCodec('copy') // Preserve audio
+         .audioCodec('copy')
          .save(burnVideoPath)
          .on('end', () => resolve())
          .on('error', (err) => reject(new Error(`Burn sub failed: ${err.message}`)));
     });
 
-    // 6. Complete
+    // --- STEP 6: Complete ---
     updateJob(job.id, { 
       status: 'done', 
       stage: 'complete', 

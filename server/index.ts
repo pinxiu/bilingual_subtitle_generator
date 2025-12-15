@@ -13,7 +13,7 @@ const PORT = 3001;
 // Middleware
 // Allow all origins to prevent CORS Network Errors during dev
 app.use(cors({ origin: '*' }));
-app.use(express.json() as RequestHandler);
+app.use(express.json());
 
 // Job Store (In-Memory)
 const jobs = new Map<string, Job>();
@@ -44,7 +44,7 @@ const upload = multer({
 // Routes
 
 // 1. Upload
-app.post('/api/upload', upload.single('file') as RequestHandler, (req: any, res: any): void => {
+app.post('/api/upload', upload.single('file'), (req: any, res: any): void => {
   if (!req.file) {
     res.status(400).json({ error: 'No file uploaded' });
     return;
