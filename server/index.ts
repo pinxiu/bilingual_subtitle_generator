@@ -109,8 +109,8 @@ app.get('/api/download/:jobId/:type', (req: any, res: any) => {
       downloadName = 'subtitles.srt';
       break;
     case 'soft':
-      filePath = path.join(jobDir, 'output_soft.mp4');
-      downloadName = 'video_soft_subs.mp4';
+      filePath = path.join(jobDir, 'output_soft.mkv');
+      downloadName = 'video_soft_subs.mkv';
       break;
     case 'burn':
       filePath = path.join(jobDir, 'output_burned.mp4');

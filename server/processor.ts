@@ -10,7 +10,7 @@ export const processJob = async (job: Job, updateJob: (id: string, partial: Part
   const jobDir = path.join(DATA_DIR, job.id);
   const inputPath = job.filePath!;
   const srtPath = path.join(jobDir, 'bilingual.srt');
-  const softVideoPath = path.join(jobDir, 'output_soft.mp4');
+  const softVideoPath = path.join(jobDir, 'output_soft.mkv');
   const burnVideoPath = path.join(jobDir, 'output_burned.mp4');
 
   try {
@@ -38,18 +38,33 @@ export const processJob = async (job: Job, updateJob: (id: string, partial: Part
 
     fs.writeFileSync(srtPath, srtContent, 'utf-8');
 
-    // 4. Render Soft Subs (Muxing)
-    updateJob(job.id, { stage: 'render_soft', progress: 60, message: 'Muxing soft subtitles stream...' });
-    
+    // 4. Render Soft Subs (Muxing) -> MKV (reliable soft subs)
+    updateJob(job.id, { stage: 'render_soft', progress: 60, message: 'Muxing soft subtitles into MKV...' });
+
     await new Promise<void>((resolve, reject) => {
       ffmpeg()
-        .input(inputPath)
-        .input(srtPath)
-        .outputOptions('-c copy') 
-        .outputOptions('-c:s mov_text') // Basic mp4 subtitle codec
+        .input(inputPath)   // input 0: video/audio
+        .input(srtPath)     // input 1: subtitles
+        .outputOptions([
+          // Explicit mapping so the subtitle stream is guaranteed to be included
+          '-map 0:v:0',
+          '-map 0:a?',      // include audio if present
+          '-map 1:0',       // include the SRT stream
+
+          // Copy video/audio without re-encoding
+          '-c:v copy',
+          '-c:a copy',
+
+          // In MKV, store subtitles as SRT (very compatible)
+          '-c:s srt',
+
+          // Optional but helpful metadata
+          '-metadata:s:s:0 language=eng',
+          '-disposition:s:0 default',
+        ])
         .save(softVideoPath)
         .on('end', () => resolve())
-        .on('error', (err) => reject(new Error(`Soft sub failed: ${err.message}`)));
+        .on('error', (err) => reject(new Error(`Soft sub MKV failed: ${err.message}`)));
     });
 
     // 5. Render Hard Subs (Burning)
