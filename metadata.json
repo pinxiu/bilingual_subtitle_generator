@@ -1,0 +1,5 @@
+{
+  "name": "Bilingual Subtitle Generator",
+  "description": "A full-stack application to generate bilingual (English/Chinese) subtitles for videos, offering soft and hard-coded subtitle downloads.",
+  "requestFramePermissions": []
+}
