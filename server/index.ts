@@ -12,8 +12,8 @@ const app = express();
 const PORT = 3001;
 
 // Middleware
-app.use(cors({ origin: '*' }));
-app.use(express.json({ limit: '50mb' }) as RequestHandler);
+app.use(cors({ origin: '*' }) as any);
+app.use(express.json({ limit: '50mb' }) as any);
 
 // Job Store (In-Memory)
 const jobs = new Map<string, Job>();
@@ -50,7 +50,7 @@ const updateJobStatus = (id: string, partial: Partial<Job>) => {
 // Routes
 
 // 1. Upload New (AI Generation)
-app.post('/api/upload', upload.single('file') as RequestHandler, (req: any, res: any): void => {
+app.post('/api/upload', upload.single('file') as any, (req: any, res: any): void => {
   if (!req.file) {
     res.status(400).json({ error: 'No file uploaded' });
     return;
@@ -82,7 +82,7 @@ app.post('/api/upload', upload.single('file') as RequestHandler, (req: any, res:
 });
 
 // 1b. Upload Existing (Resume/Edit)
-app.post('/api/upload-existing', upload.fields([{ name: 'video', maxCount: 1 }, { name: 'srt', maxCount: 1 }]) as RequestHandler, (req: any, res: any): void => {
+app.post('/api/upload-existing', upload.fields([{ name: 'video', maxCount: 1 }, { name: 'srt', maxCount: 1 }]) as any, (req: any, res: any): void => {
   const files = req.files as { [fieldname: string]: any[] };
   
   if (!files || !files['video'] || !files['srt']) {

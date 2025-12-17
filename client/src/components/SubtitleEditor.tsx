@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Cue } from '../types';
-import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock } from 'lucide-react';
+import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE } from '../constants';
 
@@ -13,6 +13,7 @@ interface SubtitleEditorProps {
 
 export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCues, videoUrl, onContinue }) => {
   const [cues, setCues] = useState<Cue[]>(initialCues);
+  const [history, setHistory] = useState<Cue[][]>([]);
   const [activeCueIndex, setActiveCueIndex] = useState<number>(-1);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -23,6 +24,14 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     const [h, m, sWithMs] = timeStr.split(':');
     const [s, ms] = sWithMs.split(',');
     return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s) + parseInt(ms) / 1000;
+  };
+
+  // Format seconds to timestamp string "00:00:01,000"
+  const formatTime = (seconds: number) => {
+    const date = new Date(0);
+    date.setMilliseconds(seconds * 1000);
+    const iso = date.toISOString();
+    return iso.substring(11, 23).replace('.', ',');
   };
 
   // Update active cue based on video time
@@ -57,32 +66,82 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     setCues(newCues);
   };
 
-  const handleDeleteCue = (index: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (window.confirm("Are you sure you want to delete this subtitle segment?")) {
-      const newCues = [...cues];
-      newCues.splice(index, 1);
-      setCues(newCues);
-    }
+  const addToHistory = () => {
+    // Snapshot current state before mutation
+    setHistory(prev => [...prev, cues]);
   };
 
-  const handleMergeNext = (index: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (index >= cues.length - 1) return;
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const previous = history[history.length - 1];
+    setHistory(prev => prev.slice(0, -1));
+    setCues(previous);
+  };
 
+  const handleDeleteCue = (index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Removed confirm dialog for smoother workflow since Undo is available
+    addToHistory();
+    const newCues = [...cues];
+    newCues.splice(index, 1);
+    setCues(newCues);
+  };
+
+  const handleMergePrevious = (index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (index <= 0) return;
+
+    addToHistory();
+
+    const previous = cues[index - 1];
     const current = cues[index];
-    const next = cues[index + 1];
 
     const newCue: Cue = {
-      start: current.start,
-      end: next.end,
-      en: (current.en + " " + next.en).trim(),
-      zh: (current.zh + " " + next.zh).trim()
+      start: previous.start,
+      end: current.end,
+      en: (previous.en + " " + current.en).trim(),
+      zh: (previous.zh + current.zh).trim() // No space for Chinese text merging
     };
 
     const newCues = [...cues];
-    newCues.splice(index, 2, newCue); // Remove current and next, insert merged
+    newCues.splice(index - 1, 2, newCue); // Remove prev and current, insert merged
     setCues(newCues);
+  };
+
+  const handleSplitCue = (index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!videoRef.current) return;
+
+    const currentTime = videoRef.current.currentTime;
+    const cue = cues[index];
+    const start = parseTime(cue.start);
+    const end = parseTime(cue.end);
+
+    // Allow a small buffer
+    if (currentTime <= start + 0.1 || currentTime >= end - 0.1) {
+      alert("Video time must be within the subtitle segment to split.");
+      return;
+    }
+
+    addToHistory();
+
+    const splitPoint = formatTime(currentTime);
+    
+    const firstPart: Cue = { ...cue, end: splitPoint };
+    const secondPart: Cue = { ...cue, start: splitPoint };
+
+    const newCues = [...cues];
+    newCues.splice(index, 1, firstPart, secondPart);
+    setCues(newCues);
+  };
+
+  const handleSetTime = (index: number, field: 'start' | 'end', e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!videoRef.current) return;
+    
+    addToHistory();
+    const timeStr = formatTime(videoRef.current.currentTime);
+    updateCue(index, field, timeStr);
   };
 
   const saveProgress = async () => {
@@ -141,6 +200,16 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
           
           <div className="flex gap-2">
             <button 
+              onClick={handleUndo}
+              disabled={history.length === 0}
+              className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Undo Last Action"
+            >
+              <Undo2 className="w-4 h-4"/>
+              <span className="hidden sm:inline">Undo</span>
+            </button>
+            <div className="w-px bg-slate-700 mx-1"></div>
+            <button 
               onClick={saveProgress}
               disabled={isSaving}
               className="flex items-center space-x-2 bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
@@ -193,50 +262,73 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                 key={idx}
                 ref={el => { cueRefs.current[idx] = el; }}
                 onClick={() => handleCueClick(idx)}
-                className={`p-3 rounded-lg border-2 transition-all group relative ${
+                className={`p-3 rounded-lg border-2 transition-all group ${
                   activeCueIndex === idx 
                     ? 'border-blue-500 bg-white shadow-md' 
                     : 'border-transparent bg-white hover:border-slate-300'
                 }`}
                >
-                 {/* Toolbar (Visible on Hover/Active) */}
-                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                   {idx < cues.length - 1 && (
-                     <button 
-                       onClick={(e) => handleMergeNext(idx, e)}
-                       className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded bg-white shadow-sm border border-slate-200"
-                       title="Merge with next"
-                     >
-                       <Merge className="w-3 h-3" />
-                     </button>
-                   )}
-                   <button 
-                     onClick={(e) => handleDeleteCue(idx, e)}
-                     className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded bg-white shadow-sm border border-slate-200"
-                     title="Delete"
-                   >
-                     <Trash2 className="w-3 h-3" />
-                   </button>
-                 </div>
+                 {/* Top Row: Timestamps and Toolbar */}
+                 <div className="flex justify-between items-center mb-2">
+                    <div className="flex gap-1 items-center">
+                      <button 
+                        onClick={(e) => handleSetTime(idx, 'start', e)}
+                        className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50"
+                        title="Set start to current video time"
+                      >
+                         <MapPin className="w-3 h-3" />
+                      </button>
+                      <input 
+                        type="text" 
+                        value={cue.start}
+                        onClick={(e) => e.stopPropagation()} 
+                        onChange={(e) => updateCue(idx, 'start', e.target.value)}
+                        className="w-24 text-xs font-mono bg-slate-100 border border-slate-300 rounded px-1 py-0.5 text-center focus:ring-1 focus:ring-blue-500 outline-none"
+                      />
+                      <span className="text-slate-400 text-xs">→</span>
+                      <input 
+                        type="text" 
+                        value={cue.end}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => updateCue(idx, 'end', e.target.value)}
+                        className="w-24 text-xs font-mono bg-slate-100 border border-slate-300 rounded px-1 py-0.5 text-center focus:ring-1 focus:ring-blue-500 outline-none"
+                      />
+                      <button 
+                        onClick={(e) => handleSetTime(idx, 'end', e)}
+                        className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50"
+                        title="Set end to current video time"
+                      >
+                         <MapPin className="w-3 h-3" />
+                      </button>
+                    </div>
 
-                 {/* Timestamps */}
-                 <div className="flex gap-2 mb-2 items-center">
-                   <Clock className="w-3 h-3 text-slate-400" />
-                   <input 
-                     type="text" 
-                     value={cue.start}
-                     onClick={(e) => e.stopPropagation()} // Prevent jumping when editing time text
-                     onChange={(e) => updateCue(idx, 'start', e.target.value)}
-                     className="w-24 text-xs font-mono bg-slate-100 border border-slate-300 rounded px-1 py-0.5 text-center focus:ring-1 focus:ring-blue-500 outline-none"
-                   />
-                   <span className="text-slate-400 text-xs">→</span>
-                   <input 
-                     type="text" 
-                     value={cue.end}
-                     onClick={(e) => e.stopPropagation()}
-                     onChange={(e) => updateCue(idx, 'end', e.target.value)}
-                     className="w-24 text-xs font-mono bg-slate-100 border border-slate-300 rounded px-1 py-0.5 text-center focus:ring-1 focus:ring-blue-500 outline-none"
-                   />
+                    {/* Action Buttons (Visible on Hover/Active) */}
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                          onClick={(e) => handleSplitCue(idx, e)}
+                          className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded bg-white shadow-sm border border-slate-200"
+                          title="Split at current video time"
+                        >
+                          <Scissors className="w-3 h-3" />
+                      </button>
+
+                      {idx > 0 && (
+                        <button 
+                          onClick={(e) => handleMergePrevious(idx, e)}
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded bg-white shadow-sm border border-slate-200"
+                          title="Merge with previous"
+                        >
+                          <Merge className="w-3 h-3" />
+                        </button>
+                      )}
+                      <button 
+                        onClick={(e) => handleDeleteCue(idx, e)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded bg-white shadow-sm border border-slate-200"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                  </div>
 
                  {/* Text Inputs with Char Count */}
@@ -275,7 +367,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
         </div>
       </div>
       <p className="text-center text-slate-400 text-sm mt-4">
-        Click a card to jump to time. Use <Save className="w-3 h-3 inline"/> to save draft. Use <Merge className="w-3 h-3 inline"/> to merge segments.
+        Click a card to jump to time. Use <Save className="w-3 h-3 inline"/> to save draft. Use <Merge className="w-3 h-3 inline"/> to merge with previous.
       </p>
     </div>
   );
