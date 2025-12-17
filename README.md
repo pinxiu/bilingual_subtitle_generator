@@ -41,9 +41,3 @@ The client will start on `http://localhost:5173`.
 *   **Frontend**: React, TypeScript, Tailwind CSS (via CDN), Vite.
 *   **Backend**: Node.js, Express, Multer (uploads), Fluent-FFmpeg (processing).
 *   **Data**: Uploads and generated files are stored in `server/data/`.
-
-## Simulation Note
-
-The **Transcription** and **Translation** stages are currently simulated with a high-quality stub to ensure the app runs immediately without requiring heavy Python AI dependencies (Whisper/NMT). 
-
-However, the **FFmpeg video processing** (Bilingual SRT generation, Soft Sub Muxing, and Hard Sub Burning) is **REAL**. The app will actually generate valid video files with the simulated subtitles.
