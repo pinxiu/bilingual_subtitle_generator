@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev:app": "tsx --watch index.ts",
-    "bootstrap:py": "node scripts/bootstrap_venv.mjs",
-    "dev": "npm run bootstrap:py && npm run dev:app"
+    "dev": "tsx --watch index.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

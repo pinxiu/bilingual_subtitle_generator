@@ -6,14 +6,14 @@ import path from 'path';
 import fs from 'fs';
 import { Job, Cue } from './types.js';
 import { processJobInitial, processJobFinalize } from './processor.js';
-import { buildSrt } from './utils.js';
+import { buildSrt, parseSrt } from './utils.js';
 
 const app = express();
 const PORT = 3001;
 
 // Middleware
 app.use(cors({ origin: '*' }));
-app.use(express.json({ limit: '50mb' })); // Increase limit for large SRT updates
+app.use(express.json({ limit: '50mb' }) as RequestHandler);
 
 // Job Store (In-Memory)
 const jobs = new Map<string, Job>();
@@ -36,7 +36,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ 
   storage,
-  limits: { fileSize: 4 * 1024 * 1024 * 1024 } // 4GB limit
+  limits: { fileSize: 2000 * 1024 * 1024 } // 2GB limit
 });
 
 // Helper for status updates
@@ -49,8 +49,8 @@ const updateJobStatus = (id: string, partial: Partial<Job>) => {
 
 // Routes
 
-// 1. Upload
-app.post('/api/upload', upload.single('file'), (req: any, res: any): void => {
+// 1. Upload New (AI Generation)
+app.post('/api/upload', upload.single('file') as RequestHandler, (req: any, res: any): void => {
   if (!req.file) {
     res.status(400).json({ error: 'No file uploaded' });
     return;
@@ -78,6 +78,59 @@ app.post('/api/upload', upload.single('file'), (req: any, res: any): void => {
   // Trigger AI processing
   processJobInitial(newJob, updateJobStatus);
 
+  res.json({ jobId });
+});
+
+// 1b. Upload Existing (Resume/Edit)
+app.post('/api/upload-existing', upload.fields([{ name: 'video', maxCount: 1 }, { name: 'srt', maxCount: 1 }]) as RequestHandler, (req: any, res: any): void => {
+  const files = req.files as { [fieldname: string]: any[] };
+  
+  if (!files || !files['video'] || !files['srt']) {
+    res.status(400).json({ error: 'Both video and SRT files are required' });
+    return;
+  }
+
+  const videoFile = files['video'][0];
+  const srtFile = files['srt'][0];
+
+  const jobId = uuidv4();
+  const jobDir = path.join(DATA_DIR, jobId);
+  fs.mkdirSync(jobDir);
+
+  // Move Video
+  const videoPath = path.join(jobDir, videoFile.filename);
+  fs.renameSync(videoFile.path, videoPath);
+
+  // Move and Rename SRT to standard 'bilingual.srt'
+  const srtPath = path.join(jobDir, 'bilingual.srt');
+  fs.renameSync(srtFile.path, srtPath);
+
+  // Parse SRT immediately
+  const srtContent = fs.readFileSync(srtPath, 'utf-8');
+  let cues: Cue[] = [];
+  try {
+    cues = parseSrt(srtContent);
+  } catch (e) {
+    console.error("Failed to parse uploaded SRT", e);
+    // Proceed with empty cues or handle error, but let's allow it so user can fix in editor
+  }
+
+  const newJob: Job = {
+    id: jobId,
+    status: 'waiting_for_approval', // Jump straight to editor
+    stage: 'user_review',
+    progress: 60,
+    filePath: videoPath,
+    originalFilename: videoFile.originalname,
+    createdAt: Date.now(),
+    result: {
+      rawVideoUrl: `/api/stream/${jobId}`,
+      previewCues: cues
+    }
+  };
+
+  jobs.set(jobId, newJob);
+  
   res.json({ jobId });
 });
 
