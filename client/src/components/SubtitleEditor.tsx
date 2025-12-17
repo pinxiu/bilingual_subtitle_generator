@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Cue, RenderConfig } from '../types';
-import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X } from 'lucide-react';
+import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE } from '../constants';
 
@@ -26,7 +26,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     renderSoft: true,
     renderBurn: true,
     burnConfig: {
-      fontSize: 16,
+      fontSize: 24, // Increased default for visibility
       fontName: 'Arial',
       primaryColour: '&H00FFFFFF', // White
       outlineColour: '&H80000000', // Black transparent
@@ -35,7 +35,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
       borderStyle: 1, // Outline
       outline: 2,
       shadow: 0,
-      marginV: 20
+      marginV: 30
     }
   });
 
@@ -166,6 +166,67 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     updateCue(index, field, timeStr);
   };
 
+  const handleInsertCue = (index: number, position: 'start' | 'end' | 'after') => {
+    addToHistory();
+    const newCues = [...cues];
+    let startSec = 0;
+    let endSec = 2;
+
+    if (position === 'start') {
+        // Insert at very beginning
+        startSec = 0;
+        if (cues.length > 0) {
+            const firstStart = parseTime(cues[0].start);
+            endSec = Math.min(2, Math.max(0.5, firstStart - 0.1));
+        } else {
+            endSec = 2;
+        }
+    } else if (position === 'end') {
+        // Insert at very end
+        if (cues.length > 0) {
+            startSec = parseTime(cues[cues.length - 1].end) + 0.1;
+            endSec = startSec + 2;
+        }
+    } else if (position === 'after') {
+        // Insert after specific index
+        const currentEnd = parseTime(cues[index].end);
+        startSec = currentEnd + 0.1;
+        
+        // Check next cue to see available gap
+        if (index < cues.length - 1) {
+            const nextStart = parseTime(cues[index + 1].start);
+            const gap = nextStart - startSec;
+            if (gap > 2) {
+                endSec = startSec + 2;
+            } else if (gap > 0.5) {
+                endSec = nextStart - 0.1;
+            } else {
+                // Gap too small, default to 2s and let user overlap/fix
+                endSec = startSec + 2;
+            }
+        } else {
+            endSec = startSec + 2;
+        }
+    }
+
+    const newCue: Cue = {
+        start: formatTime(startSec),
+        end: formatTime(endSec),
+        en: "New Subtitle",
+        zh: "新字幕"
+    };
+
+    if (position === 'start') {
+        newCues.unshift(newCue);
+    } else if (position === 'end') {
+        newCues.push(newCue);
+    } else if (position === 'after') {
+        newCues.splice(index + 1, 0, newCue);
+    }
+    
+    setCues(newCues);
+  };
+
   const saveProgress = async () => {
     setIsSaving(true);
     try {
@@ -282,10 +343,20 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
           </div>
 
           {/* Subtitle List Column */}
-          <div className="bg-slate-50 overflow-y-auto border-l border-slate-200 p-4 space-y-4">
+          <div className="bg-slate-50 overflow-y-auto border-l border-slate-200 p-4">
+             {/* Add Start Button */}
+             <button 
+                onClick={() => handleInsertCue(0, 'start')}
+                className="w-full py-2 mb-4 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-dashed border-slate-300 rounded-lg transition-colors"
+             >
+                <PlusCircle className="w-4 h-4" />
+                Add Segment at Start
+             </button>
+
+             <div className="space-y-2">
              {cues.map((cue, idx) => (
+               <React.Fragment key={idx}>
                <div 
-                key={idx}
                 ref={el => { cueRefs.current[idx] = el; }}
                 onClick={() => handleCueClick(idx)}
                 className={`p-3 rounded-lg border-2 transition-all group cursor-pointer ${
@@ -294,8 +365,9 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                     : 'border-transparent bg-white hover:border-slate-300'
                 }`}
                >
-                 <div className="flex justify-between items-center mb-2">
-                    <div className="flex gap-1 items-center">
+                 {/* Flex wrap added to prevent overflow */}
+                 <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
+                    <div className="flex gap-1 items-center shrink-0">
                       <button 
                         onClick={(e) => handleSetTime(idx, 'start', e)}
                         className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50"
@@ -383,7 +455,30 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                    </div>
                  </div>
                </div>
+               
+               {/* Add Between Button - Visual divider that appears on hover */}
+               <div className="h-4 -my-2 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity z-10 relative group/add">
+                   <div className="absolute inset-x-0 h-px bg-blue-200"></div>
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); handleInsertCue(idx, 'after'); }}
+                     className="relative bg-white text-blue-500 border border-blue-200 rounded-full p-1 shadow-sm hover:bg-blue-50 hover:scale-110 transition-transform"
+                     title="Insert segment here"
+                   >
+                       <Plus className="w-3 h-3" />
+                   </button>
+               </div>
+               </React.Fragment>
              ))}
+             </div>
+
+             {/* Add End Button */}
+             <button 
+                onClick={() => handleInsertCue(cues.length - 1, 'end')}
+                className="w-full py-2 mt-4 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-dashed border-slate-300 rounded-lg transition-colors"
+             >
+                <PlusCircle className="w-4 h-4" />
+                Add Segment at End
+             </button>
           </div>
         </div>
       </div>
@@ -391,18 +486,66 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
       {/* Render Config Modal */}
       {showRenderModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
-               <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
+           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+               <div className="bg-slate-900 p-4 text-white flex justify-between items-center shrink-0">
                    <h3 className="font-semibold text-lg">Render Settings</h3>
                    <button onClick={() => setShowRenderModal(false)} className="text-slate-400 hover:text-white">
                        <X className="w-5 h-5"/>
                    </button>
                </div>
-               <div className="p-6 space-y-6">
+               
+               <div className="p-6 space-y-6 overflow-y-auto">
                    
+                   {/* Preview Box */}
+                   {renderConfig.renderBurn && (
+                       <div className="space-y-2">
+                           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Burn Preview</label>
+                           <div className="bg-slate-800 rounded-lg overflow-hidden relative aspect-video flex justify-center w-full border border-slate-700 shadow-inner group">
+                                <div className="absolute inset-0 opacity-20 bg-[url('https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80')] bg-cover bg-center grayscale group-hover:grayscale-0 transition-all duration-700"></div>
+                                
+                                <div 
+                                    className="absolute w-full text-center flex flex-col items-center pointer-events-none transition-all duration-200"
+                                    style={{ 
+                                        bottom: `${renderConfig.burnConfig.marginV}px`,
+                                    }}
+                                >
+                                    <div 
+                                        style={{
+                                            fontSize: `${renderConfig.burnConfig.fontSize}px`,
+                                            fontFamily: renderConfig.burnConfig.fontName,
+                                            lineHeight: 1.2,
+                                            fontWeight: renderConfig.burnConfig.bold ? 'bold' : 'normal',
+                                            color: 'white',
+                                            ...(renderConfig.burnConfig.borderStyle === 1 
+                                                ? { 
+                                                    textShadow: `
+                                                        -${renderConfig.burnConfig.outline}px -${renderConfig.burnConfig.outline}px 0 #000,  
+                                                         ${renderConfig.burnConfig.outline}px -${renderConfig.burnConfig.outline}px 0 #000,
+                                                        -${renderConfig.burnConfig.outline}px  ${renderConfig.burnConfig.outline}px 0 #000,
+                                                         ${renderConfig.burnConfig.outline}px  ${renderConfig.burnConfig.outline}px 0 #000,
+                                                         0px 2px 4px rgba(0,0,0,0.5)
+                                                    `
+                                                  } 
+                                                : { 
+                                                    backgroundColor: 'rgba(0,0,0,0.6)', 
+                                                    padding: '4px 12px',
+                                                    borderRadius: '4px',
+                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                  }
+                                            )
+                                        }}
+                                    >
+                                        <div>This is a sample subtitle</div>
+                                        <div>这是一行示例字幕</div>
+                                    </div>
+                                </div>
+                           </div>
+                       </div>
+                   )}
+
                    {/* Outputs */}
                    <div className="space-y-3">
-                       <label className="text-sm font-bold text-slate-800 uppercase tracking-wider">Output Files</label>
+                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Output Files</label>
                        <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50">
                            <input 
                              type="checkbox" 
@@ -433,7 +576,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                    {renderConfig.renderBurn && (
                        <div className="space-y-4 animate-in slide-in-from-top-2">
                            <div className="h-px bg-slate-200"></div>
-                           <label className="text-sm font-bold text-slate-800 uppercase tracking-wider">Burn Appearance</label>
+                           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Burn Appearance</label>
                            
                            <div className="grid grid-cols-2 gap-4">
                                <div>
@@ -441,7 +584,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                                    <input 
                                      type="number" 
                                      value={renderConfig.burnConfig.fontSize}
-                                     onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, fontSize: parseInt(e.target.value)}}))}
+                                     onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, fontSize: parseInt(e.target.value) || 0}}))}
                                      className="w-full p-2 border rounded"
                                    />
                                </div>
@@ -450,7 +593,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                                    <input 
                                      type="number" 
                                      value={renderConfig.burnConfig.marginV}
-                                     onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, marginV: parseInt(e.target.value)}}))}
+                                     onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, marginV: parseInt(e.target.value) || 0}}))}
                                      className="w-full p-2 border rounded"
                                    />
                                </div>
@@ -461,13 +604,13 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                                <div className="grid grid-cols-2 gap-2">
                                    <button 
                                      onClick={() => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, borderStyle: 1}}))}
-                                     className={`p-2 text-sm rounded border ${renderConfig.burnConfig.borderStyle === 1 ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200'}`}
+                                     className={`p-2 text-sm rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 1 ? 'bg-blue-50 border-blue-500 text-blue-700 font-medium' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
                                    >
                                        Outline (Text Shadow)
                                    </button>
                                    <button 
                                      onClick={() => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, borderStyle: 3}}))}
-                                     className={`p-2 text-sm rounded border ${renderConfig.burnConfig.borderStyle === 3 ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200'}`}
+                                     className={`p-2 text-sm rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 3 ? 'bg-blue-50 border-blue-500 text-blue-700 font-medium' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
                                    >
                                        Opaque Box
                                    </button>
