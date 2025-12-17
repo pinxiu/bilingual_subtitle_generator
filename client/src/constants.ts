@@ -5,6 +5,7 @@ export const STAGE_LABELS: Record<string, string> = {
   transcribe: 'Transcribing Audio',
   translate: 'Translating Text',
   srt: 'Building SRT File',
+  user_review: 'Waiting for Approval',
   render_soft: 'Muxing Soft Subtitles',
   render_burn: 'Burning Hard Subtitles',
   complete: 'Process Complete'

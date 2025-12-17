@@ -7,30 +7,18 @@ import { parseSrt } from './utils.js';
 
 const DATA_DIR = path.resolve((process as any).cwd(), 'data');
 
-export const processJob = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void) => {
+// PART 1: AI Processing (Transcribe -> Translate -> SRT)
+export const processJobInitial = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void) => {
   const jobDir = path.join(DATA_DIR, job.id);
   const inputPath = job.filePath!;
   const srtPath = path.join(jobDir, 'bilingual.srt');
-  const softVideoPath = path.join(jobDir, 'output_soft.mkv');
-  const burnVideoPath = path.join(jobDir, 'output_burned.mp4');
 
   try {
-    // --- STEP 1, 2, 3: AI Service (Transcribe -> Translate -> SRT) ---
     // We spawn a Python process to handle the heavy AI lifting
     const pythonScript = path.join((process as any).cwd(), 'ai_service.py');
     
     await new Promise<void>((resolve, reject) => {
-      const venvPython =
-        process.platform === "win32"
-          ? path.join(process.cwd(), ".venv", "Scripts", "python.exe")
-          : path.join(process.cwd(), ".venv", "bin", "python");
-
-      const python = spawn(venvPython, [pythonScript, inputPath, srtPath], {
-        env: {
-          ...process.env,
-          STANZA_RESOURCES_DIR: path.join(process.cwd(), ".stanza"),
-        },
-      });
+      const python = spawn('python', [pythonScript, inputPath, srtPath]);
 
       python.stdout.on('data', (data) => {
         const lines = data.toString().split('\n');
@@ -46,7 +34,6 @@ export const processJob = async (job: Job, updateJob: (id: string, partial: Part
               });
             }
           } catch (e) {
-            // Ignore non-JSON stdout (debugging logs from python)
             console.log(`[Python Log]: ${line}`);
           }
         }
@@ -67,55 +54,63 @@ export const processJob = async (job: Job, updateJob: (id: string, partial: Part
       });
     });
 
-    // Read the generated SRT to create the preview
+    // Read generated SRT for preview
     if (!fs.existsSync(srtPath)) {
       throw new Error("SRT file was not generated.");
     }
     const srtContent = fs.readFileSync(srtPath, 'utf-8');
-    const cues = parseSrt(srtContent).slice(0, 50); // Preview first 50 cues
+    const cues = parseSrt(srtContent);
 
+    // STOP HERE: Update status to 'waiting_for_approval'
+    updateJob(job.id, { 
+      status: 'waiting_for_approval',
+      stage: 'user_review',
+      progress: 60, 
+      message: 'Waiting for subtitle review',
+      result: {
+        rawVideoUrl: `/api/stream/${job.id}`, // Allow frontend to play raw video
+        previewCues: cues
+      }
+    });
+
+  } catch (error: any) {
+    console.error("Job Initial failed:", error);
+    updateJob(job.id, { 
+      status: 'error', 
+      message: 'AI Processing failed', 
+      error: error.message || 'Unknown error' 
+    });
+  }
+};
+
+// PART 2: Rendering (Soft Sub -> Hard Sub) - Called after user approval
+export const processJobFinalize = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void) => {
+  const jobDir = path.join(DATA_DIR, job.id);
+  const inputPath = job.filePath!;
+  const srtPath = path.join(jobDir, 'bilingual.srt');
+  const softVideoPath = path.join(jobDir, 'output_soft.mp4');
+  const burnVideoPath = path.join(jobDir, 'output_burned.mp4');
+
+  try {
     // --- STEP 4: Render Soft Subs (Muxing) ---
-    updateJob(job.id, { stage: 'render_soft', progress: 85, message: 'Muxing soft subtitles stream...' });
+    updateJob(job.id, { status: 'processing', stage: 'render_soft', progress: 85, message: 'Muxing soft subtitles stream...' });
     
     await new Promise<void>((resolve, reject) => {
       ffmpeg()
-        .input(inputPath)   // input 0: video/audio
-        .input(srtPath)     // input 1: subtitles
-        .outputOptions([
-          // Explicit mapping so the subtitle stream is guaranteed to be included
-          '-map 0:v:0',
-          '-map 0:a?',      // include audio if present
-          '-map 1:0',       // include the SRT stream
-
-          // Copy video/audio without re-encoding
-          '-c:v copy',
-          '-c:a copy',
-
-          // In MKV, store subtitles as SRT (very compatible)
-          '-c:s srt',
-
-          // Optional but helpful metadata
-          '-metadata:s:s:0 language=eng',
-          '-disposition:s:0 default',
-        ])
+        .input(inputPath)
+        .input(srtPath)
+        .outputOptions('-c copy') 
+        .outputOptions('-c:s mov_text') // Standard MP4 subtitle codec
         .save(softVideoPath)
         .on('end', () => resolve())
-        .on('error', (err) => reject(new Error(`Soft sub MKV failed: ${err.message}`)));
+        .on('error', (err) => reject(new Error(`Soft sub failed: ${err.message}`)));
     });
 
     // --- STEP 5: Render Hard Subs (Burning) ---
     updateJob(job.id, { stage: 'render_burn', progress: 90, message: 'Burning subtitles (this takes time)...' });
     
     await new Promise<void>((resolve, reject) => {
-       // Escape path for ffmpeg filter: replace backslashes with forward slashes, escape colons
-       // On Windows, paths like C:\foo need to become C\:/foo in some contexts, 
-       // but fluent-ffmpeg + standard filter syntax usually works best with forward slashes.
        const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-
-       // Use force_style to ensure a readable font. 
-       // 'Arial Unicode MS' or 'Noto Sans CJK SC' covers Chinese. 
-       // If not found, FFmpeg usually falls back or shows boxes, but standard defaults often work.
-       // Outline and generic sans-serif is a safe baseline.
        const style = "Fontname=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=20";
 
        ffmpeg(inputPath)
@@ -128,6 +123,10 @@ export const processJob = async (job: Job, updateJob: (id: string, partial: Part
     });
 
     // --- STEP 6: Complete ---
+    // Re-read cues in case they changed during editing so the final result payload is accurate
+    const finalSrtContent = fs.readFileSync(srtPath, 'utf-8');
+    const finalCues = parseSrt(finalSrtContent);
+
     updateJob(job.id, { 
       status: 'done', 
       stage: 'complete', 
@@ -137,15 +136,15 @@ export const processJob = async (job: Job, updateJob: (id: string, partial: Part
         srtUrl: `/api/download/${job.id}/srt`,
         softVideoUrl: `/api/download/${job.id}/soft`,
         burnVideoUrl: `/api/download/${job.id}/burn`,
-        previewCues: cues
+        previewCues: finalCues
       }
     });
 
   } catch (error: any) {
-    console.error("Job failed:", error);
+    console.error("Job Finalize failed:", error);
     updateJob(job.id, { 
       status: 'error', 
-      message: 'Processing failed', 
+      message: 'Rendering failed', 
       error: error.message || 'Unknown error' 
     });
   }

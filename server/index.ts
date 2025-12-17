@@ -1,24 +1,19 @@
-import path from "path";
-import dotenv from "dotenv";
-
-dotenv.config({ path: path.resolve(process.cwd(), ".env") });
-
 import express, { Request, Response, RequestHandler, NextFunction } from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
-import { Job } from './types.js';
-import { processJob } from './processor.js';
+import { Job, Cue } from './types.js';
+import { processJobInitial, processJobFinalize } from './processor.js';
+import { buildSrt } from './utils.js';
 
 const app = express();
 const PORT = 3001;
 
 // Middleware
-// Allow all origins to prevent CORS Network Errors during dev
 app.use(cors({ origin: '*' }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Increase limit for large SRT updates
 
 // Job Store (In-Memory)
 const jobs = new Map<string, Job>();
@@ -31,11 +26,9 @@ if (!fs.existsSync(DATA_DIR)) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Temporary upload location, will move to job folder later or keep flat
     cb(null, DATA_DIR);
   },
   filename: (req, file, cb) => {
-    // Sanitize filename roughly to prevent some FS issues
     const cleanName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, uniqueSuffix + '-' + cleanName);
@@ -43,8 +36,16 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ 
   storage,
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 } // 2GB limit
+  limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit
 });
+
+// Helper for status updates
+const updateJobStatus = (id: string, partial: Partial<Job>) => {
+  const job = jobs.get(id);
+  if (job) {
+    jobs.set(id, { ...job, ...partial });
+  }
+};
 
 // Routes
 
@@ -59,8 +60,7 @@ app.post('/api/upload', upload.single('file'), (req: any, res: any): void => {
   const jobDir = path.join(DATA_DIR, jobId);
   fs.mkdirSync(jobDir);
 
-  // Move file to job dir for containment
-  const newPath = path.join(jobDir, req.file.filename); // Use multer generated filename
+  const newPath = path.join(jobDir, req.file.filename);
   fs.renameSync(req.file.path, newPath);
 
   const newJob: Job = {
@@ -75,13 +75,8 @@ app.post('/api/upload', upload.single('file'), (req: any, res: any): void => {
 
   jobs.set(jobId, newJob);
   
-  // Trigger background processing
-  processJob(newJob, (id, partial) => {
-    const job = jobs.get(id);
-    if (job) {
-      jobs.set(id, { ...job, ...partial });
-    }
-  });
+  // Trigger AI processing
+  processJobInitial(newJob, updateJobStatus);
 
   res.json({ jobId });
 });
@@ -95,7 +90,79 @@ app.get('/api/status/:jobId', (req: any, res: any) => {
   res.json(job);
 });
 
-// 3. Download
+// 3. Stream Raw Video (for editor)
+app.get('/api/stream/:jobId', (req: any, res: any) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || !job.filePath) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+  
+  const stat = fs.statSync(job.filePath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = (end - start) + 1;
+    const file = fs.createReadStream(job.filePath, { start, end });
+    const head = {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': 'video/mp4',
+    };
+    res.writeHead(206, head);
+    file.pipe(res);
+  } else {
+    const head = {
+      'Content-Length': fileSize,
+      'Content-Type': 'video/mp4',
+    };
+    res.writeHead(200, head);
+    fs.createReadStream(job.filePath).pipe(res);
+  }
+});
+
+// 4. Update SRT (Save Edits)
+app.post('/api/job/:jobId/update', (req: any, res: any) => {
+  const { jobId } = req.params;
+  const { cues }: { cues: Cue[] } = req.body;
+  const job = jobs.get(jobId);
+
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  try {
+    const srtContent = buildSrt(cues);
+    const srtPath = path.join(DATA_DIR, jobId, 'bilingual.srt');
+    fs.writeFileSync(srtPath, srtContent);
+    
+    // Update the previewCues in memory too
+    if (job.result) {
+      job.result.previewCues = cues;
+    }
+    
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to write SRT' });
+  }
+});
+
+// 5. Resume (Finish Processing)
+app.post('/api/job/:jobId/resume', (req: any, res: any) => {
+  const { jobId } = req.params;
+  const job = jobs.get(jobId);
+
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  // Trigger final rendering
+  processJobFinalize(job, updateJobStatus);
+  
+  res.json({ success: true });
+});
+
+// 6. Download
 app.get('/api/download/:jobId/:type', (req: any, res: any) => {
   const { jobId, type } = req.params;
   const job = jobs.get(jobId);
@@ -114,8 +181,8 @@ app.get('/api/download/:jobId/:type', (req: any, res: any) => {
       downloadName = 'subtitles.srt';
       break;
     case 'soft':
-      filePath = path.join(jobDir, 'output_soft.mkv');
-      downloadName = 'video_soft_subs.mkv';
+      filePath = path.join(jobDir, 'output_soft.mp4');
+      downloadName = 'video_soft_subs.mp4';
       break;
     case 'burn':
       filePath = path.join(jobDir, 'output_burned.mp4');
@@ -132,7 +199,6 @@ app.get('/api/download/:jobId/:type', (req: any, res: any) => {
   }
 });
 
-// Global Error Handler to catch Multer errors and prevent "Network Error" on client
 app.use((err: any, req: Request, res: any, next: NextFunction) => {
   console.error(err);
   if (err instanceof multer.MulterError) {

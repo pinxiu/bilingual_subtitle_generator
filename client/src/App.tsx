@@ -4,6 +4,7 @@ import { DropZone } from './components/DropZone';
 import { StatusCard } from './components/StatusCard';
 import { PreviewPanel } from './components/PreviewPanel';
 import { DownloadSection } from './components/DownloadSection';
+import { SubtitleEditor } from './components/SubtitleEditor';
 import { JobStatus, UploadResponse } from './types';
 import { API_BASE } from './constants';
 import { Languages, AlertCircle } from 'lucide-react';
@@ -28,8 +29,6 @@ function App() {
     formData.append('file', fileToUpload);
 
     try {
-      // NOTE: Do not manually set Content-Type for multipart/form-data; 
-      // let the browser set it with the boundary.
       const res = await axios.post<UploadResponse>(`${API_BASE}/upload`, formData);
       setJobId(res.data.jobId);
     } catch (err: any) {
@@ -45,7 +44,9 @@ function App() {
       const res = await axios.get<JobStatus>(`${API_BASE}/status/${jobId}`);
       setJobStatus(res.data);
 
-      if (res.data.status === 'done' || res.data.status === 'error') {
+      const s = res.data.status;
+      // Stop polling if done, error, OR waiting for user approval
+      if (s === 'done' || s === 'error' || s === 'waiting_for_approval') {
         if (pollIntervalRef.current) {
           window.clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
@@ -54,6 +55,12 @@ function App() {
     } catch (err) {
       console.error("Polling error", err);
     }
+  };
+
+  const resumePolling = () => {
+     if (jobId && !pollIntervalRef.current) {
+       pollIntervalRef.current = window.setInterval(pollStatus, 1000);
+     }
   };
 
   useEffect(() => {
@@ -71,7 +78,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center p-3 bg-blue-600 rounded-2xl shadow-lg mb-4">
@@ -86,7 +93,7 @@ function App() {
         </div>
 
         {/* Main Content */}
-        <div className="bg-white rounded-2xl shadow-xl border border-slate-100 p-6 md:p-8">
+        <div className={`transition-all duration-300 ${jobStatus?.status === 'waiting_for_approval' ? '' : 'bg-white rounded-2xl shadow-xl border border-slate-100 p-6 md:p-8'}`}>
           
           {/* Error Banner */}
           {error && (
@@ -102,12 +109,27 @@ function App() {
             <DropZone onFileSelect={handleFileSelect} isUploading={false} />
           )}
 
-          {/* Progress Area */}
-          {jobStatus && (
+          {/* Progress Area - Hide during editor phase */}
+          {jobStatus && jobStatus.status !== 'waiting_for_approval' && (
              <StatusCard job={jobStatus} />
           )}
+
+          {/* Editor Area */}
+          {jobStatus?.status === 'waiting_for_approval' && jobStatus.result && (
+            <SubtitleEditor 
+              jobId={jobStatus.id}
+              initialCues={jobStatus.result.previewCues}
+              videoUrl={jobStatus.result.rawVideoUrl || ''}
+              onContinue={() => {
+                // Manually update local state to "processing" immediately for UI feedback
+                // while polling restarts
+                setJobStatus({ ...jobStatus, status: 'processing', stage: 'render_soft', message: 'Resuming...' });
+                resumePolling();
+              }}
+            />
+          )}
           
-          {/* Results Area */}
+          {/* Final Results Area */}
           {jobStatus?.status === 'done' && jobStatus.result && (
             <>
               <PreviewPanel cues={jobStatus.result.previewCues} />

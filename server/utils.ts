@@ -38,3 +38,10 @@ export function parseSrt(srtContent: string): Cue[] {
   }
   return cues;
 }
+
+// Rebuild SRT content from Cue objects (for saving edits)
+export function buildSrt(cues: Cue[]): string {
+  return cues.map((cue, index) => {
+    return `${index + 1}\n${cue.start} --> ${cue.end}\n${cue.en}\n${cue.zh}`;
+  }).join('\n\n');
+}

@@ -1,10 +1,11 @@
-export type JobStatus = 'queued' | 'processing' | 'done' | 'error';
+export type JobStatus = 'queued' | 'processing' | 'waiting_for_approval' | 'done' | 'error';
 
 export type JobStage = 
   | 'upload' 
   | 'transcribe' 
   | 'translate' 
   | 'srt' 
+  | 'user_review'
   | 'render_soft' 
   | 'render_burn' 
   | 'complete';
@@ -20,6 +21,7 @@ export interface JobResult {
   srtUrl?: string;
   softVideoUrl?: string;
   burnVideoUrl?: string;
+  rawVideoUrl?: string;
   previewCues?: Cue[];
 }
 
