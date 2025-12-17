@@ -18,7 +18,17 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
     const pythonScript = path.join((process as any).cwd(), 'ai_service.py');
     
     await new Promise<void>((resolve, reject) => {
-      const python = spawn('python', [pythonScript, inputPath, srtPath]);
+      const venvPython =
+        process.platform === "win32"
+          ? path.join(process.cwd(), ".venv", "Scripts", "python.exe")
+          : path.join(process.cwd(), ".venv", "bin", "python");
+
+      const python = spawn(venvPython, [pythonScript, inputPath, srtPath], {
+        env: {
+          ...process.env,
+          STANZA_RESOURCES_DIR: path.join(process.cwd(), ".stanza"),
+        },
+      });
 
       python.stdout.on('data', (data) => {
         const lines = data.toString().split('\n');
