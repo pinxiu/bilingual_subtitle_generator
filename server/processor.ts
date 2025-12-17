@@ -114,7 +114,8 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
       borderStyle: 1, // Default to Outline now to avoid overlap box issues
       outline: 2,
       shadow: 0,
-      marginV: 20
+      marginV: 20,
+      lineHeight: 1.2
     }
   };
 
