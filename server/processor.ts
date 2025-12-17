@@ -15,7 +15,17 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
 
   try {
     // We spawn a Python process to handle the heavy AI lifting
-    const pythonScript = path.join((process as any).cwd(), 'ai_service.py');
+    const venvPython =
+      process.platform === "win32"
+        ? path.join(process.cwd(), ".venv", "Scripts", "python.exe")
+        : path.join(process.cwd(), ".venv", "bin", "python");
+
+    const python = spawn(venvPython, [pythonScript, inputPath, srtPath], {
+      env: {
+        ...process.env,
+        STANZA_RESOURCES_DIR: path.join(process.cwd(), ".stanza"),
+      },
+    });
     
     // Use 'python3' on macOS/Linux, 'python' on Windows
     const pythonCommand = (process as any).platform === 'win32' ? 'python' : 'python3';
