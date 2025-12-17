@@ -1,10 +1,11 @@
+
 import express, { Request, Response, RequestHandler, NextFunction } from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
-import { Job, Cue } from './types.js';
+import { Job, Cue, RenderConfig } from './types.js';
 import { processJobInitial, processJobFinalize } from './processor.js';
 import { buildSrt, parseSrt } from './utils.js';
 
@@ -12,8 +13,8 @@ const app = express();
 const PORT = 3001;
 
 // Middleware
-app.use(cors({ origin: '*' }));
-app.use(express.json({ limit: '50mb' }) as RequestHandler);
+app.use(cors({ origin: '*' }) as any);
+app.use(express.json({ limit: '50mb' }) as any);
 
 // Job Store (In-Memory)
 const jobs = new Map<string, Job>();
@@ -50,7 +51,7 @@ const updateJobStatus = (id: string, partial: Partial<Job>) => {
 // Routes
 
 // 1. Upload New (AI Generation)
-app.post('/api/upload', upload.single('file') as RequestHandler, (req: any, res: any): void => {
+app.post('/api/upload', upload.single('file') as any, (req: any, res: any): void => {
   if (!req.file) {
     res.status(400).json({ error: 'No file uploaded' });
     return;
@@ -82,7 +83,7 @@ app.post('/api/upload', upload.single('file') as RequestHandler, (req: any, res:
 });
 
 // 1b. Upload Existing (Resume/Edit)
-app.post('/api/upload-existing', upload.fields([{ name: 'video', maxCount: 1 }, { name: 'srt', maxCount: 1 }]) as RequestHandler, (req: any, res: any): void => {
+app.post('/api/upload-existing', upload.fields([{ name: 'video', maxCount: 1 }, { name: 'srt', maxCount: 1 }]) as any, (req: any, res: any): void => {
   const files = req.files as { [fieldname: string]: any[] };
   
   if (!files || !files['video'] || !files['srt']) {
@@ -112,7 +113,6 @@ app.post('/api/upload-existing', upload.fields([{ name: 'video', maxCount: 1 }, 
     cues = parseSrt(srtContent);
   } catch (e) {
     console.error("Failed to parse uploaded SRT", e);
-    // Proceed with empty cues or handle error, but let's allow it so user can fix in editor
   }
 
   const newJob: Job = {
@@ -132,6 +132,97 @@ app.post('/api/upload-existing', upload.fields([{ name: 'video', maxCount: 1 }, 
   jobs.set(jobId, newJob);
   
   res.json({ jobId });
+});
+
+// 1c. List Jobs
+app.get('/api/jobs', (req: any, res: any) => {
+  try {
+    const entries = fs.readdirSync(DATA_DIR, { withFileTypes: true });
+    const availableJobs = [];
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const jobId = entry.name;
+        const jobDir = path.join(DATA_DIR, jobId);
+        
+        // Check for bilingual.srt
+        const srtExists = fs.existsSync(path.join(jobDir, 'bilingual.srt'));
+        if (!srtExists) continue;
+
+        // Check for video file
+        const files = fs.readdirSync(jobDir);
+        // exclude generated outputs and srt, find original video
+        const videoFile = files.find(f => 
+          !f.startsWith('output_') && 
+          f !== 'bilingual.srt' &&
+          ['.mp4', '.mov', '.avi', '.mkv'].includes(path.extname(f).toLowerCase())
+        );
+
+        if (videoFile) {
+           const stats = fs.statSync(path.join(jobDir, 'bilingual.srt'));
+           availableJobs.push({
+             id: jobId,
+             originalFilename: videoFile, // Using the file name on disk as proxy for original
+             createdAt: stats.birthtimeMs,
+             lastModified: stats.mtimeMs
+           });
+        }
+      }
+    }
+    
+    // Sort by modified desc
+    availableJobs.sort((a, b) => b.lastModified - a.lastModified);
+    res.json(availableJobs);
+  } catch (err) {
+    console.error("Failed to list jobs", err);
+    res.status(500).json({ error: "Failed to list jobs" });
+  }
+});
+
+// 1d. Resume from Disk ID
+app.post('/api/job/:jobId/load', (req: any, res: any) => {
+    const { jobId } = req.params;
+    
+    // If already in memory, return it
+    if (jobs.has(jobId)) {
+        return res.json({ jobId });
+    }
+
+    const jobDir = path.join(DATA_DIR, jobId);
+    if (!fs.existsSync(jobDir)) {
+        return res.status(404).json({ error: "Job files not found" });
+    }
+
+    // Reconstruct Job
+    const files = fs.readdirSync(jobDir);
+    const videoFile = files.find(f => 
+        !f.startsWith('output_') && 
+        f !== 'bilingual.srt' &&
+        ['.mp4', '.mov', '.avi', '.mkv'].includes(path.extname(f).toLowerCase())
+    );
+    if (!videoFile) return res.status(404).json({error: "Video file missing"});
+
+    const videoPath = path.join(jobDir, videoFile);
+    const srtPath = path.join(jobDir, 'bilingual.srt');
+    const srtContent = fs.readFileSync(srtPath, 'utf-8');
+    const cues = parseSrt(srtContent);
+
+    const job: Job = {
+        id: jobId,
+        status: 'waiting_for_approval',
+        stage: 'user_review',
+        progress: 60,
+        filePath: videoPath,
+        originalFilename: videoFile,
+        createdAt: Date.now(), // approximation
+        result: {
+            rawVideoUrl: `/api/stream/${jobId}`,
+            previewCues: cues
+        }
+    };
+    
+    jobs.set(jobId, job);
+    res.json({ jobId });
 });
 
 // 2. Status
@@ -205,12 +296,13 @@ app.post('/api/job/:jobId/update', (req: any, res: any) => {
 // 5. Resume (Finish Processing)
 app.post('/api/job/:jobId/resume', (req: any, res: any) => {
   const { jobId } = req.params;
+  const { config }: { config?: RenderConfig } = req.body;
   const job = jobs.get(jobId);
 
   if (!job) return res.status(404).json({ error: 'Job not found' });
 
-  // Trigger final rendering
-  processJobFinalize(job, updateJobStatus);
+  // Trigger final rendering with config
+  processJobFinalize(job, updateJobStatus, config);
   
   res.json({ success: true });
 });

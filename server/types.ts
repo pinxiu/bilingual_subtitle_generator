@@ -1,3 +1,4 @@
+
 export type JobStatus = 'queued' | 'processing' | 'waiting_for_approval' | 'done' | 'error';
 
 export type JobStage = 
@@ -15,6 +16,23 @@ export interface Cue {
   end: string;   // "00:00:03,000"
   en: string;
   zh: string;
+}
+
+export interface RenderConfig {
+  renderSoft: boolean;
+  renderBurn: boolean;
+  burnConfig?: {
+    fontSize: number;
+    fontName: string;
+    primaryColour: string; // Hex AABBGGRR in ASS, but we might take web hex and convert
+    outlineColour: string;
+    backColour: string;
+    bold: boolean;
+    borderStyle: number; // 1=Outline, 3=Opaque Box
+    outline: number;
+    shadow: number;
+    marginV: number;
+  };
 }
 
 export interface JobResult {
@@ -36,4 +54,5 @@ export interface Job {
   filePath?: string;
   createdAt: number;
   result?: JobResult;
+  renderConfig?: RenderConfig;
 }

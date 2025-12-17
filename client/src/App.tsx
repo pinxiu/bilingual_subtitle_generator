@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DropZone } from './components/DropZone';
@@ -5,9 +6,9 @@ import { StatusCard } from './components/StatusCard';
 import { PreviewPanel } from './components/PreviewPanel';
 import { DownloadSection } from './components/DownloadSection';
 import { SubtitleEditor } from './components/SubtitleEditor';
-import { JobStatus, UploadResponse } from './types';
+import { JobStatus, UploadResponse, SavedJob, RenderConfig } from './types';
 import { API_BASE } from './constants';
-import { Languages, AlertCircle, FileText, FileVideo, RefreshCw } from 'lucide-react';
+import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock } from 'lucide-react';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'new' | 'resume'>('new');
@@ -18,6 +19,7 @@ function App() {
   // State for "Resume" mode
   const [resumeVideo, setResumeVideo] = useState<File | null>(null);
   const [resumeSrt, setResumeSrt] = useState<File | null>(null);
+  const [savedJobs, setSavedJobs] = useState<SavedJob[]>([]);
 
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -37,6 +39,19 @@ function App() {
         window.clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
     }
+    
+    if (tab === 'resume') {
+        fetchSavedJobs();
+    }
+  };
+
+  const fetchSavedJobs = async () => {
+      try {
+          const res = await axios.get<SavedJob[]>(`${API_BASE}/jobs`);
+          setSavedJobs(res.data);
+      } catch (err) {
+          console.error("Failed to fetch jobs");
+      }
   };
 
   const handleFileSelect = (selectedFile: File) => {
@@ -77,6 +92,15 @@ function App() {
     }
   };
 
+  const handleLoadJob = async (id: string) => {
+      try {
+          const res = await axios.post<{jobId: string}>(`${API_BASE}/job/${id}/load`);
+          setJobId(res.data.jobId);
+      } catch (err: any) {
+          setError("Failed to load job. " + (err.response?.data?.error || ""));
+      }
+  };
+
   const pollStatus = async () => {
     if (!jobId) return;
 
@@ -115,6 +139,19 @@ function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
+  
+  // Handle editor continue with config
+  const handleEditorContinue = async (config: RenderConfig) => {
+     if (!jobId) return;
+     try {
+         await axios.post(`${API_BASE}/job/${jobId}/resume`, { config });
+         // Manually update status to start polling
+         setJobStatus(prev => prev ? { ...prev, status: 'processing', stage: 'render_soft', message: 'Starting render...' } : null);
+         resumePolling();
+     } catch (err) {
+         setError("Failed to resume processing.");
+     }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
@@ -171,41 +208,80 @@ function App() {
 
           {/* MODE: Resume / Upload Existing */}
           {!jobId && !jobStatus && activeTab === 'resume' && (
-            <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors relative">
-                        <input 
-                            type="file" 
-                            accept="video/*" 
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            onChange={(e) => setResumeVideo(e.target.files?.[0] || null)}
-                        />
-                        <div className="flex flex-col items-center">
-                            <FileVideo className={`w-8 h-8 mb-2 ${resumeVideo ? 'text-blue-600' : 'text-slate-400'}`} />
-                            <span className="font-medium text-slate-700">{resumeVideo ? resumeVideo.name : "Select Video File"}</span>
+            <div className="space-y-8">
+                
+                {/* 1. Saved Jobs List */}
+                {savedJobs.length > 0 && (
+                    <div className="space-y-3">
+                        <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                            <FolderOpen className="w-5 h-5 text-blue-600"/>
+                            Recent Projects (Server)
+                        </h3>
+                        <div className="grid gap-3 max-h-60 overflow-y-auto">
+                            {savedJobs.map(job => (
+                                <button 
+                                  key={job.id}
+                                  onClick={() => handleLoadJob(job.id)}
+                                  className="flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
+                                >
+                                    <div>
+                                        <div className="font-medium text-slate-700 group-hover:text-blue-700 truncate max-w-[200px] sm:max-w-md">
+                                            {job.originalFilename}
+                                        </div>
+                                        <div className="text-xs text-slate-400 flex items-center gap-1 mt-1">
+                                            <Clock className="w-3 h-3"/>
+                                            {new Date(job.lastModified).toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <div className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-medium text-slate-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                        Open
+                                    </div>
+                                </button>
+                            ))}
                         </div>
                     </div>
-                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors relative">
-                        <input 
-                            type="file" 
-                            accept=".srt" 
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            onChange={(e) => setResumeSrt(e.target.files?.[0] || null)}
-                        />
-                        <div className="flex flex-col items-center">
-                            <FileText className={`w-8 h-8 mb-2 ${resumeSrt ? 'text-purple-600' : 'text-slate-400'}`} />
-                            <span className="font-medium text-slate-700">{resumeSrt ? resumeSrt.name : "Select SRT File"}</span>
+                )}
+                
+                {savedJobs.length > 0 && <div className="border-t border-slate-100"></div>}
+
+                {/* 2. Manual Upload */}
+                <div>
+                    <h3 className="font-semibold text-slate-800 mb-3">Or Upload Files</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors relative">
+                            <input 
+                                type="file" 
+                                accept="video/*" 
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                onChange={(e) => setResumeVideo(e.target.files?.[0] || null)}
+                            />
+                            <div className="flex flex-col items-center">
+                                <FileVideo className={`w-8 h-8 mb-2 ${resumeVideo ? 'text-blue-600' : 'text-slate-400'}`} />
+                                <span className="font-medium text-slate-700">{resumeVideo ? resumeVideo.name : "Select Video File"}</span>
+                            </div>
+                        </div>
+                        <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors relative">
+                            <input 
+                                type="file" 
+                                accept=".srt" 
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                onChange={(e) => setResumeSrt(e.target.files?.[0] || null)}
+                            />
+                            <div className="flex flex-col items-center">
+                                <FileText className={`w-8 h-8 mb-2 ${resumeSrt ? 'text-purple-600' : 'text-slate-400'}`} />
+                                <span className="font-medium text-slate-700">{resumeSrt ? resumeSrt.name : "Select SRT File"}</span>
+                            </div>
                         </div>
                     </div>
+                    <button
+                        onClick={handleResumeSubmit}
+                        disabled={!resumeVideo || !resumeSrt}
+                        className="w-full mt-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                    >
+                        <RefreshCw className="w-5 h-5" />
+                        Load Editor
+                    </button>
                 </div>
-                <button
-                    onClick={handleResumeSubmit}
-                    disabled={!resumeVideo || !resumeSrt}
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
-                >
-                    <RefreshCw className="w-5 h-5" />
-                    Load Editor
-                </button>
             </div>
           )}
 
@@ -220,12 +296,7 @@ function App() {
               jobId={jobStatus.id}
               initialCues={jobStatus.result.previewCues}
               videoUrl={jobStatus.result.rawVideoUrl || ''}
-              onContinue={() => {
-                // Manually update local state to "processing" immediately for UI feedback
-                // while polling restarts
-                setJobStatus({ ...jobStatus, status: 'processing', stage: 'render_soft', message: 'Resuming...' });
-                resumePolling();
-              }}
+              onContinue={handleEditorContinue}
             />
           )}
           
