@@ -1,8 +1,26 @@
+
 export interface Cue {
   start: string;
   end: string;
   en: string;
   zh: string;
+}
+
+export interface RenderConfig {
+  renderSoft: boolean;
+  renderBurn: boolean;
+  burnConfig: {
+    fontSize: number;
+    fontName: string;
+    primaryColour: string;
+    outlineColour: string;
+    backColour: string;
+    bold: boolean;
+    borderStyle: number;
+    outline: number;
+    shadow: number;
+    marginV: number;
+  };
 }
 
 export interface JobResult {
@@ -25,4 +43,11 @@ export interface JobStatus {
 
 export interface UploadResponse {
   jobId: string;
+}
+
+export interface SavedJob {
+  id: string;
+  originalFilename: string;
+  createdAt: number;
+  lastModified: number;
 }

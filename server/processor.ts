@@ -1,8 +1,9 @@
+
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
-import { Job, Cue } from './types.js';
+import { Job, Cue, RenderConfig, JobResult } from './types.js';
 import { parseSrt } from './utils.js';
 
 const DATA_DIR = path.resolve((process as any).cwd(), 'data');
@@ -92,60 +93,105 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
 };
 
 // PART 2: Rendering (Soft Sub -> Hard Sub) - Called after user approval
-export const processJobFinalize = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void) => {
+export const processJobFinalize = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void, config?: RenderConfig) => {
   const jobDir = path.join(DATA_DIR, job.id);
   const inputPath = job.filePath!;
   const srtPath = path.join(jobDir, 'bilingual.srt');
   const softVideoPath = path.join(jobDir, 'output_soft.mp4');
   const burnVideoPath = path.join(jobDir, 'output_burned.mp4');
 
+  // Default config if not provided
+  const safeConfig = config || {
+    renderSoft: true,
+    renderBurn: true,
+    burnConfig: {
+      fontSize: 16,
+      fontName: 'Arial',
+      primaryColour: '&H00FFFFFF',
+      outlineColour: '&H80000000',
+      backColour: '&H80000000',
+      bold: false,
+      borderStyle: 1, // Default to Outline now to avoid overlap box issues
+      outline: 2,
+      shadow: 0,
+      marginV: 20
+    }
+  };
+
   try {
     // --- STEP 4: Render Soft Subs (Muxing) ---
-    updateJob(job.id, { status: 'processing', stage: 'render_soft', progress: 85, message: 'Muxing soft subtitles stream...' });
-    
-    await new Promise<void>((resolve, reject) => {
-      ffmpeg()
-        .input(inputPath)
-        .input(srtPath)
-        .outputOptions('-c copy') 
-        .outputOptions('-c:s mov_text') // Standard MP4 subtitle codec
-        .save(softVideoPath)
-        .on('end', () => resolve())
-        .on('error', (err) => reject(new Error(`Soft sub failed: ${err.message}`)));
-    });
+    if (safeConfig.renderSoft) {
+        updateJob(job.id, { status: 'processing', stage: 'render_soft', progress: 85, message: 'Muxing soft subtitles stream...' });
+        
+        await new Promise<void>((resolve, reject) => {
+          ffmpeg()
+            .input(inputPath)
+            .input(srtPath)
+            .outputOptions('-c copy') 
+            .outputOptions('-c:s mov_text') // Standard MP4 subtitle codec
+            .save(softVideoPath)
+            .on('end', () => resolve())
+            .on('error', (err) => reject(new Error(`Soft sub failed: ${err.message}`)));
+        });
+    }
 
     // --- STEP 5: Render Hard Subs (Burning) ---
-    updateJob(job.id, { stage: 'render_burn', progress: 90, message: 'Burning subtitles (this takes time)...' });
-    
-    await new Promise<void>((resolve, reject) => {
-       const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-       const style = "Fontname=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=20";
+    if (safeConfig.renderBurn) {
+        updateJob(job.id, { stage: 'render_burn', progress: 90, message: 'Burning subtitles (this takes time)...' });
+        
+        await new Promise<void>((resolve, reject) => {
+           const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+           
+           // Construct ForceStyle string from config
+           const c = safeConfig.burnConfig!;
+           const styleParts = [
+             `FontName=${c.fontName || 'Arial'}`,
+             `FontSize=${c.fontSize}`,
+             `PrimaryColour=${c.primaryColour}`,
+             `OutlineColour=${c.outlineColour}`,
+             `BackColour=${c.backColour || '&H80000000'}`,
+             `BorderStyle=${c.borderStyle}`,
+             `Outline=${c.outline}`,
+             `Shadow=${c.shadow}`,
+             `MarginV=${c.marginV}`,
+             `Bold=${c.bold ? 1 : 0}`
+           ];
+           const style = styleParts.join(',');
 
-       ffmpeg(inputPath)
-         .outputOptions('-vf', `subtitles='${escapedSrtPath}':force_style='${style}'`)
-         .videoCodec('libx264')
-         .audioCodec('copy')
-         .save(burnVideoPath)
-         .on('end', () => resolve())
-         .on('error', (err) => reject(new Error(`Burn sub failed: ${err.message}`)));
-    });
+           ffmpeg(inputPath)
+             .outputOptions('-vf', `subtitles='${escapedSrtPath}':force_style='${style}'`)
+             .videoCodec('libx264')
+             .audioCodec('copy')
+             .save(burnVideoPath)
+             .on('end', () => resolve())
+             .on('error', (err) => reject(new Error(`Burn sub failed: ${err.message}`)));
+        });
+    }
 
     // --- STEP 6: Complete ---
-    // Re-read cues in case they changed during editing so the final result payload is accurate
+    // Re-read cues in case they changed during editing
     const finalSrtContent = fs.readFileSync(srtPath, 'utf-8');
     const finalCues = parseSrt(finalSrtContent);
+
+    // Only return URLs for files that were actually generated
+    const result: JobResult = {
+        previewCues: finalCues,
+        srtUrl: `/api/download/${job.id}/srt`,
+    };
+
+    if (safeConfig.renderSoft && fs.existsSync(softVideoPath)) {
+        result.softVideoUrl = `/api/download/${job.id}/soft`;
+    }
+    if (safeConfig.renderBurn && fs.existsSync(burnVideoPath)) {
+        result.burnVideoUrl = `/api/download/${job.id}/burn`;
+    }
 
     updateJob(job.id, { 
       status: 'done', 
       stage: 'complete', 
       progress: 100, 
       message: 'Processing complete!',
-      result: {
-        srtUrl: `/api/download/${job.id}/srt`,
-        softVideoUrl: `/api/download/${job.id}/soft`,
-        burnVideoUrl: `/api/download/${job.id}/burn`,
-        previewCues: finalCues
-      }
+      result
     });
 
   } catch (error: any) {
