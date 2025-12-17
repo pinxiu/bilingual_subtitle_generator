@@ -20,6 +20,7 @@ export interface RenderConfig {
     outline: number;
     shadow: number;
     marginV: number;
+    lineHeight: number;
   };
 }
 
