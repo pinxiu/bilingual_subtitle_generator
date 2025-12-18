@@ -346,9 +346,9 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 h-[650px]">
+        <div className="grid grid-cols-1 lg:grid-cols-5 h-[650px]">
           {/* Video Player Column */}
-          <div className="lg:col-span-2 bg-black flex items-center justify-center relative group">
+          <div className="lg:col-span-3 bg-black flex items-center justify-center relative group">
             <video 
               ref={videoRef}
               src={`http://localhost:3001${videoUrl}`} 
@@ -373,7 +373,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
           </div>
 
           {/* Subtitle List Column */}
-          <div className="bg-slate-50 overflow-y-auto border-l border-slate-200 p-4">
+          <div className="lg:col-span-2 bg-slate-50 overflow-y-auto border-l border-slate-200 p-4">
              {/* Add Start Button */}
              <button 
                 onClick={() => handleInsertCue(0, 'start')}
