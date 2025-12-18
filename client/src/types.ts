@@ -26,8 +26,8 @@ export interface RenderConfig {
 
 export interface JobResult {
   srtUrl: string;
-  softVideoUrl: string;
-  burnVideoUrl: string;
+  softVideoUrl?: string;
+  burnVideoUrl?: string;
   rawVideoUrl?: string;
   previewCues: Cue[];
 }

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Cue, RenderConfig } from '../types';
-import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle, Link2, Unlink2 } from 'lucide-react';
+import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle, Link2, Unlink2, Download } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE } from '../constants';
 
@@ -288,6 +288,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
       cueRefs.current[activeCueIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [activeCueIndex]);
+
+  const noVideoRenderSelected = !renderConfig.renderSoft && !renderConfig.renderBurn;
 
   return (
     <div className="mt-6 animate-in fade-in zoom-in duration-300 relative">
@@ -662,10 +664,10 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                    <div className="pt-2">
                        <button 
                          onClick={confirmRender}
-                         className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-lg flex justify-center items-center gap-2"
+                         className={`w-full py-3 text-white rounded-lg font-bold shadow-lg flex justify-center items-center gap-2 transition-colors ${noVideoRenderSelected ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                        >
-                           <RotateCw className="w-5 h-5" />
-                           Start Rendering
+                           {noVideoRenderSelected ? <Download className="w-5 h-5" /> : <RotateCw className="w-5 h-5" />}
+                           {noVideoRenderSelected ? "Finish & Get SRT" : "Start Rendering"}
                        </button>
                    </div>
                </div>
