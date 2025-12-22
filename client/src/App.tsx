@@ -8,14 +8,15 @@ import { DownloadSection } from './components/DownloadSection';
 import { SubtitleEditor } from './components/SubtitleEditor';
 import { JobStatus, UploadResponse, SavedJob, RenderConfig, SourceLanguage, OutputFormat } from './types';
 import { API_BASE } from './constants';
-import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles, Type } from 'lucide-react';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'new' | 'resume'>('new');
   
-  // New Configuration States
+  // Configuration States
   const [sourceLang, setSourceLang] = useState<SourceLanguage>('en');
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('bilingual');
+  const [lineCount, setLineCount] = useState<1 | 2>(1);
   const [enTranscript, setEnTranscript] = useState('');
   const [zhTranscript, setZhTranscript] = useState('');
   const [showTranscripts, setShowTranscripts] = useState(false);
@@ -77,6 +78,7 @@ function App() {
     formData.append('file', file);
     formData.append('sourceLang', sourceLang);
     formData.append('outputFormat', outputFormat);
+    formData.append('lineCount', outputFormat === 'bilingual' ? '2' : lineCount.toString());
     formData.append('enTranscript', enTranscript);
     formData.append('zhTranscript', zhTranscript);
 
@@ -288,6 +290,32 @@ function App() {
                       </div>
                    </div>
                 </div>
+
+                {/* Line Count (Only for EN or ZH only) */}
+                {outputFormat !== 'bilingual' && (
+                  <div className="mt-6 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <label className="text-sm font-bold text-slate-500 uppercase flex items-center gap-2">
+                       <Type className="w-4 h-4" /> Line Mode
+                    </label>
+                    <div className="flex p-1 bg-slate-100 rounded-lg max-w-sm">
+                       <button 
+                         onClick={() => setLineCount(1)}
+                         className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${lineCount === 1 ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                       >
+                          Single Line
+                       </button>
+                       <button 
+                         onClick={() => setLineCount(2)}
+                         className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${lineCount === 2 ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                       >
+                          Double Lines
+                       </button>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {lineCount === 1 ? "Keep subtitles as concise as possible in one row." : "Allow subtitles to span across two rows for better readability."}
+                    </p>
+                  </div>
+                )}
 
                 {/* Optional Transcripts */}
                 <div className="mt-6 border border-slate-200 rounded-xl overflow-hidden">

@@ -43,9 +43,10 @@ export interface JobStatus {
   message?: string;
   error?: string;
   result?: JobResult;
-  // New config fields
+  // Config fields
   sourceLang?: SourceLanguage;
   outputFormat?: OutputFormat;
+  lineCount?: number;
 }
 
 export interface UploadResponse {

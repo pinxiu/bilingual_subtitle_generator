@@ -57,7 +57,7 @@ app.post('/api/upload', upload.single('file') as any, (req: any, res: any): void
   const newPath = path.join(jobDir, req.file.filename);
   fs.renameSync(req.file.path, newPath);
 
-  const { sourceLang, outputFormat, enTranscript, zhTranscript } = req.body;
+  const { sourceLang, outputFormat, lineCount, enTranscript, zhTranscript } = req.body;
 
   const newJob: Job = {
     id: jobId,
@@ -69,6 +69,7 @@ app.post('/api/upload', upload.single('file') as any, (req: any, res: any): void
     createdAt: Date.now(),
     sourceLang: (sourceLang as SourceLanguage) || 'en',
     outputFormat: (outputFormat as OutputFormat) || 'bilingual',
+    lineCount: lineCount ? parseInt(lineCount) : (outputFormat === 'bilingual' ? 2 : 1),
     enTranscript,
     zhTranscript
   };
