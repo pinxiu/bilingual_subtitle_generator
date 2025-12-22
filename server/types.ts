@@ -62,6 +62,7 @@ export interface Job {
   // Config
   sourceLang?: SourceLanguage;
   outputFormat?: OutputFormat;
+  lineCount?: number;
   enTranscript?: string;
   zhTranscript?: string;
 }
