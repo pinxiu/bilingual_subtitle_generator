@@ -34,7 +34,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ 
   storage,
-  limits: { fileSize: 2000 * 1024 * 1024 } 
+  limits: { fileSize: 4 * 1024 * 1024 * 1024 } // 4GB limit
 });
 
 const updateJobStatus = (id: string, partial: Partial<Job>) => {
