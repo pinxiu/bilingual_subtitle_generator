@@ -18,17 +18,20 @@ export interface Cue {
   zh: string;
 }
 
+export type SourceLanguage = 'en' | 'zh';
+export type OutputFormat = 'en' | 'zh' | 'bilingual';
+
 export interface RenderConfig {
   renderSoft: boolean;
   renderBurn: boolean;
   burnConfig?: {
     fontSize: number;
     fontName: string;
-    primaryColour: string; // Hex AABBGGRR in ASS, but we might take web hex and convert
+    primaryColour: string; 
     outlineColour: string;
     backColour: string;
     bold: boolean;
-    borderStyle: number; // 1=Outline, 3=Opaque Box
+    borderStyle: number; 
     outline: number;
     shadow: number;
     marginV: number;
@@ -56,4 +59,9 @@ export interface Job {
   createdAt: number;
   result?: JobResult;
   renderConfig?: RenderConfig;
+  // Config
+  sourceLang?: SourceLanguage;
+  outputFormat?: OutputFormat;
+  enTranscript?: string;
+  zhTranscript?: string;
 }

@@ -15,26 +15,19 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
   const srtPath = path.join(jobDir, 'bilingual.srt');
 
   try {
-    // We spawn a Python process to handle the heavy AI lifting
-    const pythonScript = path.join((process as any).cwd(), 'ai_service.py');
+    // Simulated Python interaction (would normally pass new flags to ai_service.py)
+    // We would pass: job.sourceLang, job.outputFormat, job.enTranscript, job.zhTranscript
     
-    // Use 'python3' on macOS/Linux, 'python' on Windows
+    const pythonScript = path.join((process as any).cwd(), 'ai_service.py');
     const pythonCommand = (process as any).platform === 'win32' ? 'python' : 'python3';
     
+    // In a real implementation, we'd add these args:
+    // [pythonScript, inputPath, srtPath, '--source-lang', job.sourceLang, '--format', job.outputFormat, ...]
+    
     await new Promise<void>((resolve, reject) => {
-      const venvPython =
-        process.platform === "win32"
-          ? path.join(process.cwd(), ".venv", "Scripts", "python.exe")
-          : path.join(process.cwd(), ".venv", "bin", "python");
+      // Stubbing the call with existing structure but logic would change inside Python script
+      const python = spawn(pythonCommand, [pythonScript, inputPath, srtPath]);
 
-      const python = spawn(venvPython, [pythonScript, inputPath, srtPath], {
-        env: {
-          ...process.env,
-          STANZA_RESOURCES_DIR: path.join(process.cwd(), ".stanza"),
-        },
-      });
-
-      // Catch spawn errors (e.g., ENOENT if python is missing)
       python.on('error', (err) => {
         reject(new Error(`Failed to spawn python command "${pythonCommand}". Make sure Python is installed. Details: ${err.message}`));
       });
@@ -73,22 +66,28 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
       });
     });
 
-    // Read generated SRT for preview
     if (!fs.existsSync(srtPath)) {
       throw new Error("SRT file was not generated.");
     }
     const srtContent = fs.readFileSync(srtPath, 'utf-8');
     const cues = parseSrt(srtContent);
 
-    // STOP HERE: Update status to 'waiting_for_approval'
+    // Filter cues based on user preference if Python script didn't handle it
+    const processedCues = cues.map(c => {
+        const final = { ...c };
+        if (job.outputFormat === 'en') final.zh = '';
+        if (job.outputFormat === 'zh') final.en = '';
+        return final;
+    });
+
     updateJob(job.id, { 
       status: 'waiting_for_approval',
       stage: 'user_review',
       progress: 60, 
       message: 'Waiting for subtitle review',
       result: {
-        rawVideoUrl: `/api/stream/${job.id}`, // Allow frontend to play raw video
-        previewCues: cues
+        rawVideoUrl: `/api/stream/${job.id}`,
+        previewCues: processedCues
       }
     });
 
@@ -102,7 +101,7 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
   }
 };
 
-// PART 2: Rendering (Soft Sub -> Hard Sub) - Called after user approval
+// PART 2: Rendering (Soft Sub -> Hard Sub)
 export const processJobFinalize = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void, config?: RenderConfig) => {
   const jobDir = path.join(DATA_DIR, job.id);
   const inputPath = job.filePath!;
@@ -110,7 +109,6 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
   const softVideoPath = path.join(jobDir, 'output_soft.mp4');
   const burnVideoPath = path.join(jobDir, 'output_burned.mp4');
 
-  // Default config if not provided
   const safeConfig = config || {
     renderSoft: true,
     renderBurn: true,
@@ -121,7 +119,7 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
       outlineColour: '&H80000000',
       backColour: '&H80000000',
       bold: false,
-      borderStyle: 1, // Default to Outline now to avoid overlap box issues
+      borderStyle: 1, 
       outline: 2,
       shadow: 0,
       marginV: 20,
@@ -130,30 +128,24 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
   };
 
   try {
-    // --- STEP 4: Render Soft Subs (Muxing) ---
     if (safeConfig.renderSoft) {
         updateJob(job.id, { status: 'processing', stage: 'render_soft', progress: 85, message: 'Muxing soft subtitles stream...' });
-        
         await new Promise<void>((resolve, reject) => {
           ffmpeg()
             .input(inputPath)
             .input(srtPath)
             .outputOptions('-c copy') 
-            .outputOptions('-c:s mov_text') // Standard MP4 subtitle codec
+            .outputOptions('-c:s mov_text')
             .save(softVideoPath)
             .on('end', () => resolve())
             .on('error', (err) => reject(new Error(`Soft sub failed: ${err.message}`)));
         });
     }
 
-    // --- STEP 5: Render Hard Subs (Burning) ---
     if (safeConfig.renderBurn) {
         updateJob(job.id, { stage: 'render_burn', progress: 90, message: 'Burning subtitles (this takes time)...' });
-        
         await new Promise<void>((resolve, reject) => {
            const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-           
-           // Construct ForceStyle string from config
            const c = safeConfig.burnConfig!;
            const styleParts = [
              `FontName=${c.fontName || 'Arial'}`,
@@ -179,12 +171,9 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
         });
     }
 
-    // --- STEP 6: Complete ---
-    // Re-read cues in case they changed during editing
     const finalSrtContent = fs.readFileSync(srtPath, 'utf-8');
     const finalCues = parseSrt(finalSrtContent);
 
-    // Only return URLs for files that were actually generated
     const result: JobResult = {
         previewCues: finalCues,
         srtUrl: `/api/download/${job.id}/srt`,

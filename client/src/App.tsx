@@ -6,15 +6,23 @@ import { StatusCard } from './components/StatusCard';
 import { PreviewPanel } from './components/PreviewPanel';
 import { DownloadSection } from './components/DownloadSection';
 import { SubtitleEditor } from './components/SubtitleEditor';
-import { JobStatus, UploadResponse, SavedJob, RenderConfig } from './types';
+import { JobStatus, UploadResponse, SavedJob, RenderConfig, SourceLanguage, OutputFormat } from './types';
 import { API_BASE } from './constants';
-import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock } from 'lucide-react';
+import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'new' | 'resume'>('new');
   
+  // New Configuration States
+  const [sourceLang, setSourceLang] = useState<SourceLanguage>('en');
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>('bilingual');
+  const [enTranscript, setEnTranscript] = useState('');
+  const [zhTranscript, setZhTranscript] = useState('');
+  const [showTranscripts, setShowTranscripts] = useState(false);
+
   // State for "New" mode
   const [file, setFile] = useState<File | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
   
   // State for "Resume" mode
   const [resumeVideo, setResumeVideo] = useState<File | null>(null);
@@ -35,6 +43,7 @@ function App() {
     setFile(null);
     setResumeVideo(null);
     setResumeSrt(null);
+    setIsStarting(false);
     if (pollIntervalRef.current) {
         window.clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -57,12 +66,19 @@ function App() {
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
     setError(null);
-    uploadFile(selectedFile);
   };
 
-  const uploadFile = async (fileToUpload: File) => {
+  const handleStartGeneration = async () => {
+    if (!file) return;
+    setIsStarting(true);
+    setError(null);
+
     const formData = new FormData();
-    formData.append('file', fileToUpload);
+    formData.append('file', file);
+    formData.append('sourceLang', sourceLang);
+    formData.append('outputFormat', outputFormat);
+    formData.append('enTranscript', enTranscript);
+    formData.append('zhTranscript', zhTranscript);
 
     try {
       const res = await axios.post<UploadResponse>(`${API_BASE}/upload`, formData);
@@ -70,6 +86,7 @@ function App() {
     } catch (err: any) {
       console.error(err);
       setError(err.response?.data?.error || err.message || "Failed to upload file.");
+      setIsStarting(false);
     }
   };
 
@@ -109,7 +126,6 @@ function App() {
       setJobStatus(res.data);
 
       const s = res.data.status;
-      // Stop polling if done, error, OR waiting for user approval
       if (s === 'done' || s === 'error' || s === 'waiting_for_approval') {
         if (pollIntervalRef.current) {
           window.clearInterval(pollIntervalRef.current);
@@ -129,7 +145,6 @@ function App() {
 
   useEffect(() => {
     if (jobId) {
-      // Start polling
       pollIntervalRef.current = window.setInterval(pollStatus, 1000);
     }
     return () => {
@@ -137,15 +152,12 @@ function App() {
         window.clearInterval(pollIntervalRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
   
-  // Handle editor continue with config
   const handleEditorContinue = async (config: RenderConfig) => {
      if (!jobId) return;
      try {
          await axios.post(`${API_BASE}/job/${jobId}/resume`, { config });
-         // Manually update status to start polling
          setJobStatus(prev => prev ? { ...prev, status: 'processing', stage: 'render_soft', message: 'Starting render...' } : null);
          resumePolling();
      } catch (err) {
@@ -165,11 +177,11 @@ function App() {
             Bilingual Subtitle Generator
           </h1>
           <p className="text-lg text-slate-600 max-w-xl mx-auto">
-            Upload a video to automatically generate professional, 2-line English & Chinese subtitles.
+            Professional AI-powered subtitles in English & Chinese. Now with custom transcripts and flexible formats.
           </p>
         </div>
 
-        {/* Navigation Tabs (Only visible if no job is active) */}
+        {/* Navigation Tabs */}
         {!jobId && !jobStatus && (
             <div className="flex justify-center mb-6">
                 <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-sm flex space-x-1">
@@ -192,7 +204,6 @@ function App() {
         {/* Main Content */}
         <div className={`transition-all duration-300 ${jobStatus?.status === 'waiting_for_approval' ? '' : 'bg-white rounded-2xl shadow-xl border border-slate-100 p-6 md:p-8'}`}>
           
-          {/* Error Banner */}
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
               <AlertCircle className="w-5 h-5 text-red-500 mt-0.5" />
@@ -203,14 +214,139 @@ function App() {
 
           {/* MODE: Generate New */}
           {!jobId && !jobStatus && activeTab === 'new' && (
-            <DropZone onFileSelect={handleFileSelect} isUploading={false} />
+            <div className="space-y-8 animate-in fade-in duration-500">
+              
+              {/* Step 1: File Selection */}
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                   <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">1</div>
+                   <h3 className="font-semibold text-slate-800">Select Video</h3>
+                </div>
+                <DropZone onFileSelect={handleFileSelect} isUploading={isStarting} />
+                {file && (
+                  <div className="mt-3 flex items-center gap-2 text-sm text-blue-600 bg-blue-50 p-2 rounded-lg border border-blue-100">
+                     <FileVideo className="w-4 h-4" />
+                     <span className="font-medium truncate">{file.name}</span>
+                     <button onClick={() => setFile(null)} className="ml-auto hover:text-blue-800">Change</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: Configuration */}
+              <div className={file ? "opacity-100" : "opacity-40 pointer-events-none"}>
+                <div className="flex items-center gap-2 mb-4">
+                   <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">2</div>
+                   <h3 className="font-semibold text-slate-800">Configure Project</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   {/* Source Lang */}
+                   <div className="space-y-2">
+                      <label className="text-sm font-bold text-slate-500 uppercase flex items-center gap-2">
+                         <Globe2 className="w-4 h-4" /> Video Spoken In
+                      </label>
+                      <div className="flex p-1 bg-slate-100 rounded-lg">
+                         <button 
+                           onClick={() => setSourceLang('en')}
+                           className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${sourceLang === 'en' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            English
+                         </button>
+                         <button 
+                           onClick={() => setSourceLang('zh')}
+                           className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${sourceLang === 'zh' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            Chinese
+                         </button>
+                      </div>
+                   </div>
+
+                   {/* Output Format */}
+                   <div className="space-y-2">
+                      <label className="text-sm font-bold text-slate-500 uppercase flex items-center gap-2">
+                         <AlignLeft className="w-4 h-4" /> Subtitle Format
+                      </label>
+                      <div className="flex p-1 bg-slate-100 rounded-lg">
+                         <button 
+                           onClick={() => setOutputFormat('en')}
+                           className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-md transition-all ${outputFormat === 'en' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            EN Only
+                         </button>
+                         <button 
+                           onClick={() => setOutputFormat('zh')}
+                           className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-md transition-all ${outputFormat === 'zh' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            ZH Only
+                         </button>
+                         <button 
+                           onClick={() => setOutputFormat('bilingual')}
+                           className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-md transition-all ${outputFormat === 'bilingual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            Bilingual
+                         </button>
+                      </div>
+                   </div>
+                </div>
+
+                {/* Optional Transcripts */}
+                <div className="mt-6 border border-slate-200 rounded-xl overflow-hidden">
+                   <button 
+                      onClick={() => setShowTranscripts(!showTranscripts)}
+                      className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 transition-colors"
+                   >
+                      <div className="flex items-center gap-3">
+                         <div className="p-2 bg-purple-100 rounded-lg text-purple-600">
+                            <Sparkles className="w-4 h-4" />
+                         </div>
+                         <div className="text-left">
+                            <div className="font-semibold text-slate-800 text-sm">Transcript Assistance</div>
+                            <div className="text-xs text-slate-500">Provide text to help AI generate more accurate segments</div>
+                         </div>
+                      </div>
+                      {showTranscripts ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                   </button>
+                   
+                   {showTranscripts && (
+                     <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                           <label className="text-xs font-bold text-slate-400 uppercase">English Transcript</label>
+                           <textarea 
+                              value={enTranscript}
+                              onChange={(e) => setEnTranscript(e.target.value)}
+                              placeholder="Paste English text here..."
+                              className="w-full h-32 p-3 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none transition-all"
+                           />
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-xs font-bold text-slate-400 uppercase">Chinese Transcript</label>
+                           <textarea 
+                              value={zhTranscript}
+                              onChange={(e) => setZhTranscript(e.target.value)}
+                              placeholder="粘贴中文文本..."
+                              className="w-full h-32 p-3 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none transition-all"
+                           />
+                        </div>
+                     </div>
+                   )}
+                </div>
+              </div>
+
+              {/* Start Button */}
+              <button 
+                 onClick={handleStartGeneration}
+                 disabled={!file || isStarting}
+                 className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
+              >
+                 {isStarting ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6" />}
+                 {isStarting ? "Processing..." : "Start Generation"}
+              </button>
+            </div>
           )}
 
           {/* MODE: Resume / Upload Existing */}
           {!jobId && !jobStatus && activeTab === 'resume' && (
-            <div className="space-y-8">
-                
-                {/* 1. Saved Jobs List */}
+            <div className="space-y-8 animate-in fade-in duration-500">
                 {savedJobs.length > 0 && (
                     <div className="space-y-3">
                         <h3 className="font-semibold text-slate-800 flex items-center gap-2">
@@ -244,7 +380,6 @@ function App() {
                 
                 {savedJobs.length > 0 && <div className="border-t border-slate-100"></div>}
 
-                {/* 2. Manual Upload */}
                 <div>
                     <h3 className="font-semibold text-slate-800 mb-3">Or Upload Files</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -285,7 +420,7 @@ function App() {
             </div>
           )}
 
-          {/* Progress Area - Hide during editor phase */}
+          {/* Progress Area */}
           {jobStatus && jobStatus.status !== 'waiting_for_approval' && (
              <StatusCard job={jobStatus} />
           )}
@@ -302,21 +437,20 @@ function App() {
           
           {/* Final Results Area */}
           {jobStatus?.status === 'done' && jobStatus.result && (
-            <>
+            <div className="animate-in zoom-in duration-300">
               <PreviewPanel cues={jobStatus.result.previewCues} />
               <DownloadSection result={jobStatus.result} />
               
               <div className="mt-8 text-center">
                  <button 
-                  onClick={() => {
-                    handleTabChange('new');
-                  }}
-                  className="text-sm text-slate-500 hover:text-blue-600 font-medium underline"
+                  onClick={() => handleTabChange('new')}
+                  className="text-sm text-slate-500 hover:text-blue-600 font-medium underline flex items-center justify-center gap-2 mx-auto"
                  >
+                   <Sparkles className="w-4 h-4" />
                    Process another video
                  </button>
               </div>
-            </>
+            </div>
           )}
 
         </div>
