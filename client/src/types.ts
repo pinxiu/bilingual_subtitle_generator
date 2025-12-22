@@ -6,6 +6,9 @@ export interface Cue {
   zh: string;
 }
 
+export type SourceLanguage = 'en' | 'zh';
+export type OutputFormat = 'en' | 'zh' | 'bilingual';
+
 export interface RenderConfig {
   renderSoft: boolean;
   renderBurn: boolean;
@@ -40,6 +43,9 @@ export interface JobStatus {
   message?: string;
   error?: string;
   result?: JobResult;
+  // New config fields
+  sourceLang?: SourceLanguage;
+  outputFormat?: OutputFormat;
 }
 
 export interface UploadResponse {
