@@ -3,19 +3,15 @@
 
 """
 ai_service.py
-Invoked as:
+
+Audio/Video mode (unchanged):
   python ai_service.py <inputPath> <srtPath>
+
+SRT re-translate mode (NEW):
+  python ai_service.py --input_srt <inputSrtPath> <outputSrtPath>
 
 Emits JSONL progress to stdout:
   {"stage":"transcribe","progress":25,"message":"..."}
-
-Generates bilingual SRT with strict 2-line cues:
-  English (single line)
-  Chinese (single line)
-
-Translation backend:
-- Prefer best free open model locally via Transformers (NLLB).
-- Fallback to Argos Translate if Transformers/Torch aren't available.
 """
 
 from __future__ import annotations
@@ -76,6 +72,21 @@ def srt_ts(t: float) -> str:
     return f"{hour:02d}:{minute:02d}:{sec:02d},{ms:03d}"
 
 
+def _parse_srt_ts(ts: str) -> float:
+    """
+    Parse 'HH:MM:SS,mmm' or 'HH:MM:SS.mmm' -> seconds.
+    """
+    ts = ts.strip().replace(",", ".")
+    m = re.match(r"^(\d+):(\d+):(\d+)\.(\d+)$", ts)
+    if not m:
+        raise ValueError(f"Invalid SRT timestamp: {ts}")
+    hh = int(m.group(1))
+    mm = int(m.group(2))
+    ss = int(m.group(3))
+    ms = int(m.group(4).ljust(3, "0")[:3])
+    return hh * 3600 + mm * 60 + ss + (ms / 1000.0)
+
+
 def _is_cjk_char(ch: str) -> bool:
     if not ch:
         return False
@@ -86,6 +97,11 @@ def _is_cjk_char(ch: str) -> bool:
         or 0x3000 <= o <= 0x303F  # CJK Symbols & Punctuation
         or 0xFF00 <= o <= 0xFFEF  # Halfwidth/Fullwidth
     )
+
+
+def _looks_like_zh(text: str) -> bool:
+    t = text or ""
+    return any(_is_cjk_char(ch) for ch in t)
 
 
 def split_text_chunks(text: str, max_chars: int) -> List[str]:
@@ -148,8 +164,6 @@ def split_text_chunks(text: str, max_chars: int) -> List[str]:
             out.append(t[i:j])
             break
 
-        # Look back for best punctuation split
-        k = j
         best = -1
         for k in range(j - 1, i, -1):
             if t[k] in split_punct:
@@ -270,7 +284,6 @@ def _normalize_zh_punctuation(text: str) -> str:
         else:
             out.append(ch)
 
-    # Minor cleanup: remove spaces before Chinese punctuation
     s2 = "".join(out)
     s2 = re.sub(r"\s+([，。！？；：])", r"\1", s2)
     return s2
@@ -284,7 +297,6 @@ class Translator:
         self._mode = "none"
         self._preferred_model = preferred_model
 
-        # Try best-free local translation first
         try:
             import torch  # noqa: F401
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer  # noqa: F401
@@ -302,18 +314,15 @@ class Translator:
             self._model.to(self._device)
             self._model.eval()
 
-            # NLLB language codes
             self._NLLB_EN = "eng_Latn"
             self._NLLB_ZH = "zho_Hans"  # Simplified Chinese
 
             emit("translate", 46, "Translation model ready (Transformers/NLLB).")
             return
         except Exception as ex:
-            # Fall back to Argos
             self._mode = "argos"
             emit("translate", 42, f"Transformers not available ({ex}). Falling back to Argos Translate...")
 
-        # Argos fallback
         self._init_argos()
 
     def _init_argos(self) -> None:
@@ -346,7 +355,6 @@ class Translator:
             if not pkgs:
                 raise RuntimeError(f"No Argos package available for {from_code}->{to_code}")
 
-            # Pick newest if possible
             def _pkg_version(p) -> str:
                 return getattr(p, "package_version", None) or getattr(p, "version", None) or "0"
 
@@ -357,7 +365,6 @@ class Translator:
                 td_path = Path(td)
                 downloaded_path = None
 
-                # pkg.download() signature varies; handle both
                 try:
                     target = td_path / f"{from_code}_{to_code}.argosmodel"
                     ret = pkg.download(str(target))
@@ -403,7 +410,6 @@ class Translator:
         if not t:
             return ""
 
-        # NLLB: set source language, then force BOS token to target language
         self._tokenizer.src_lang = src_lang
         inputs = self._tokenizer(t, return_tensors="pt", truncation=True)
         inputs = {k: v.to(self._device) for k, v in inputs.items()}
@@ -466,12 +472,108 @@ def transcribe(
 
 
 # -------------------------
+# NEW: Load segments from SRT for re-translate
+# -------------------------
+def load_segments_from_srt(input_srt: Path) -> Tuple[List[Segment], str]:
+    """
+    Reads an SRT and returns segments whose text is the "source" line.
+    Heuristic:
+      - If cue has 2+ text lines: treat line1 as EN and use it as source (default)
+        unless line1 looks like ZH and line2 doesn't, then swap.
+      - If cue has 1 text line: detect by CJK heuristic.
+    Returns (segments, detected_lang) where detected_lang is 'zh' or 'en' (best-effort).
+    """
+    content = input_srt.read_text(encoding="utf-8", errors="ignore")
+    blocks = re.split(r"\n\s*\n", content.strip())
+    candidates: List[Tuple[float, float, str, str]] = []  # start, end, en, zh
+    zh_votes = 0
+    en_votes = 0
+
+    for b in blocks:
+        lines = [ln.strip("\ufeff").rstrip() for ln in b.splitlines() if ln.strip()]
+        if not lines:
+            continue
+
+        # Optional numeric index
+        if re.match(r"^\d+$", lines[0]):
+            lines = lines[1:]
+            if not lines:
+                continue
+
+        # Time line
+        time_line_idx = next((i for i, ln in enumerate(lines) if "-->" in ln), -1)
+        if time_line_idx < 0:
+            continue
+        time_line = lines[time_line_idx]
+        m = re.match(r"^\s*(.*?)\s*-->\s*(.*?)\s*$", time_line)
+        if not m:
+            continue
+
+        try:
+            start = _parse_srt_ts(m.group(1))
+            end = _parse_srt_ts(m.group(2))
+        except Exception:
+            continue
+
+        text_lines = [clean_one_line(x) for x in lines[time_line_idx + 1 :] if clean_one_line(x)]
+        if not text_lines:
+            continue
+
+        if len(text_lines) == 1:
+            t0 = text_lines[0]
+            if _looks_like_zh(t0):
+                zh_votes += 1
+                en_line = ""
+                zh_line = _normalize_zh_punctuation(t0)
+            else:
+                en_votes += 1
+                en_line = t0
+                zh_line = ""
+        else:
+            l1 = text_lines[0]
+            l2 = text_lines[1]
+            # If clearly swapped, fix:
+            if _looks_like_zh(l1) and (not _looks_like_zh(l2)):
+                en_line, zh_line = l2, _normalize_zh_punctuation(l1)
+            else:
+                en_line, zh_line = l1, _normalize_zh_punctuation(l2)
+
+            # Vote based on which line is "more present"
+            if en_line and not zh_line:
+                en_votes += 1
+            elif zh_line and not en_line:
+                zh_votes += 1
+            else:
+                # If bilingual, vote for EN as the usual source.
+                en_votes += 1
+
+        candidates.append((start, end, en_line, zh_line))
+
+    detected = "zh" if zh_votes > en_votes else "en"
+
+    # Build segments with chosen source text based on detected
+    segments: List[Segment] = []
+    for s, e, en_line, zh_line in candidates:
+        if detected == "zh":
+            src = zh_line or en_line
+        else:
+            src = en_line or zh_line
+        segments.append(Segment(s, e, src))
+
+    return segments, detected
+
+
+# -------------------------
 # Main
 # -------------------------
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("input_path")
-    ap.add_argument("output_srt_path")
+    # NOTE: input_path is now optional so we can support:
+    #   ai_service.py --input_srt <inputSrt> <outputSrt>
+    ap.add_argument("input_path", nargs="?", help="Audio/video input (omit when using --input_srt)")
+    ap.add_argument("output_srt_path", help="Output bilingual SRT path")
+    ap.add_argument("--input_srt", default="", help="If set, re-translate from an existing SRT instead of transcribing")
+
     ap.add_argument("--model", default=os.getenv("WHISPER_MODEL", "small"))
     ap.add_argument("--device", default=os.getenv("WHISPER_DEVICE", "cpu"))
     ap.add_argument("--compute_type", default=os.getenv("WHISPER_COMPUTE_TYPE", "int8"))
@@ -481,31 +583,44 @@ def main() -> int:
     ap.add_argument("--translate_model", default=os.getenv("TRANSLATE_MODEL", "facebook/nllb-200-distilled-600M"))
     args = ap.parse_args()
 
-    in_path = Path(args.input_path).expanduser().resolve()
     out_srt = Path(args.output_srt_path).expanduser().resolve()
 
     try:
-        if not in_path.exists():
-            raise FileNotFoundError(f"Input file not found: {in_path}")
-
         emit("init", 5, "Starting AI service...")
 
-        segments, detected = transcribe(
-            in_path,
-            model_name=args.model,
-            device=args.device,
-            compute_type=args.compute_type,
-            language=args.language,
-        )
+        # Decide input mode
+        if args.input_srt and args.input_srt.strip():
+            in_srt = Path(args.input_srt).expanduser().resolve()
+            if not in_srt.exists():
+                raise FileNotFoundError(f"Input SRT not found: {in_srt}")
 
-        # Decide direction based on detected language
+            emit("translate", 10, f"Loading input SRT: {in_srt}")
+            segments, detected = load_segments_from_srt(in_srt)
+            if not segments:
+                raise RuntimeError("No valid cues found in input SRT.")
+            emit("translate", 18, f"SRT loaded. Heuristic detected language: {detected}")
+        else:
+            if not args.input_path:
+                raise ValueError("Missing input_path. Provide audio/video input or use --input_srt <path>.")
+            in_path = Path(args.input_path).expanduser().resolve()
+            if not in_path.exists():
+                raise FileNotFoundError(f"Input file not found: {in_path}")
+
+            segments, detected = transcribe(
+                in_path,
+                model_name=args.model,
+                device=args.device,
+                compute_type=args.compute_type,
+                language=args.language,
+            )
+
         detected_is_zh = detected.startswith("zh") or detected.startswith("yue")
 
         emit("translate", 40, "Initializing translator...")
         tr = Translator(args.translate_model)
 
         if detected_is_zh:
-            emit("translate", 50, "Detected Chinese input. Producing EN (top) + ZH (bottom).")
+            emit("translate", 50, "Chinese source. Producing EN (top) + ZH (bottom).")
 
             def make_pair(src_zh: str) -> Tuple[str, str]:
                 zh_line = _normalize_zh_punctuation(src_zh)
@@ -514,7 +629,7 @@ def main() -> int:
 
             max_chars_src = args.max_chars_zh
         else:
-            emit("translate", 50, "Detected non-Chinese input. Producing EN (top) + ZH (bottom).")
+            emit("translate", 50, "English source. Producing EN (top) + ZH (bottom).")
 
             def make_pair(src_en: str) -> Tuple[str, str]:
                 en_line = src_en
@@ -531,7 +646,6 @@ def main() -> int:
         return 0
 
     except Exception as ex:
-        # Node captures stderr into errorOutput; keep message helpful.
         eprint(f"ai_service.py failed: {ex}")
         return 1
 
