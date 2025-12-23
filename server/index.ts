@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { Job, Cue, RenderConfig, SourceLanguage, OutputFormat } from './types.js';
-import { processJobInitial, processJobFinalize } from './processor.js';
+import { processJobInitial, processJobFinalize, processJobRetranslate } from './processor.js';
 import { buildSrt, parseSrt } from './utils.js';
 
 const app = express();
@@ -76,6 +76,46 @@ app.post('/api/upload', upload.single('file') as any, (req: any, res: any): void
 
   jobs.set(jobId, newJob);
   processJobInitial(newJob, updateJobStatus);
+  res.json({ jobId });
+});
+
+app.post('/api/retranslate', upload.fields([{ name: 'video', maxCount: 1 }, { name: 'srt', maxCount: 1 }]) as any, (req: any, res: any): void => {
+  const files = req.files as { [fieldname: string]: any[] };
+  
+  if (!files || !files['video'] || !files['srt']) {
+    res.status(400).json({ error: 'Both video and SRT files are required' });
+    return;
+  }
+
+  const videoFile = files['video'][0];
+  const srtFile = files['srt'][0];
+
+  const jobId = uuidv4();
+  const jobDir = path.join(DATA_DIR, jobId);
+  fs.mkdirSync(jobDir);
+
+  const videoPath = path.join(jobDir, videoFile.filename);
+  fs.renameSync(videoFile.path, videoPath);
+
+  const srtPath = path.join(jobDir, 'input.srt');
+  fs.renameSync(srtFile.path, srtPath);
+
+  const { sourceLang, outputFormat } = req.body;
+
+  const newJob: Job = {
+    id: jobId,
+    status: 'queued', 
+    stage: 'translate',
+    progress: 30,
+    filePath: videoPath,
+    originalFilename: videoFile.originalname,
+    createdAt: Date.now(),
+    sourceLang: (sourceLang as SourceLanguage) || 'en',
+    outputFormat: (outputFormat as OutputFormat) || 'bilingual'
+  };
+
+  jobs.set(jobId, newJob);
+  processJobRetranslate(newJob, updateJobStatus);
   res.json({ jobId });
 });
 
