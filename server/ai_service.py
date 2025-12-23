@@ -12,117 +12,42 @@ Emits JSONL progress to stdout:
 Generates bilingual SRT with strict 2-line cues:
   English (single line)
   Chinese (single line)
+
+Translation backend:
+- Prefer best free open model locally via Transformers (NLLB).
+- Fallback to Argos Translate if Transformers/Torch aren't available.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 
 # -------------------------
-# JSON progress (stdout)
+# IO helpers
 # -------------------------
 def emit(stage: str, progress: int, message: str) -> None:
-    # Node expects JSON per line on stdout
-    print(json.dumps({"stage": stage, "progress": int(progress), "message": message}, ensure_ascii=False), flush=True)
+    payload = {"stage": stage, "progress": int(progress), "message": str(message)}
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
 
 
-def eprint(*args) -> None:
-    # send debug/info to stderr so it won't confuse the Node JSON parser
-    print(*args, file=sys.stderr, flush=True)
+def eprint(msg: str) -> None:
+    sys.stderr.write(str(msg) + "\n")
+    sys.stderr.flush()
 
 
 # -------------------------
 # SRT helpers
 # -------------------------
-_WS = re.compile(r"\s+")
-
-
-def clean_one_line(text: str) -> str:
-    text = (text or "").replace("\r", " ").replace("\n", " ")
-    text = _WS.sub(" ", text).strip()
-    return text
-
-
-def srt_ts(seconds: float) -> str:
-    if seconds < 0:
-        seconds = 0.0
-    ms = int(round(seconds * 1000.0))
-    hh = ms // 3_600_000
-    ms -= hh * 3_600_000
-    mm = ms // 60_000
-    ms -= mm * 60_000
-    ss = ms // 1_000
-    ms -= ss * 1_000
-    return f"{hh:02d}:{mm:02d}:{ss:02d},{ms:03d}"
-
-
-def split_text_chunks(text: str, max_chars: int) -> List[str]:
-    """
-    Split into single-line chunks (no wrapping) with <= max_chars when possible.
-    Prefers punctuation boundaries.
-    """
-    t = clean_one_line(text)
-    if not t:
-        return []
-    if len(t) <= max_chars:
-        return [t]
-
-    # Punctuation-based split (keep punctuation)
-    parts = re.split(r"([,，。.!?！？；;:])", t)
-    chunks: List[str] = []
-    cur = ""
-    for i in range(0, len(parts), 2):
-        piece = parts[i]
-        punct = parts[i + 1] if i + 1 < len(parts) else ""
-        cand = (cur + " " + piece + punct).strip() if cur else (piece + punct).strip()
-        if len(cand) <= max_chars:
-            cur = cand
-        else:
-            if cur:
-                chunks.append(cur)
-            cur = (piece + punct).strip()
-    if cur:
-        chunks.append(cur)
-
-    # If still too long (e.g., no punctuation), split by spaces
-    final: List[str] = []
-    for c in chunks:
-        if len(c) <= max_chars:
-            final.append(c)
-            continue
-        words = c.split(" ")
-        buf = ""
-        for w in words:
-            cand = (buf + " " + w).strip() if buf else w
-            if len(cand) <= max_chars:
-                buf = cand
-            else:
-                if buf:
-                    final.append(buf)
-                buf = w
-        if buf:
-            final.append(buf)
-
-    # Worst-case: hard slice (e.g., long Chinese with no punctuation)
-    out: List[str] = []
-    for c in final:
-        if len(c) <= max_chars:
-            out.append(c)
-        else:
-            for i in range(0, len(c), max_chars):
-                out.append(c[i : i + max_chars].strip())
-    return [x for x in out if x]
-
-
 @dataclass
 class Segment:
     start: float
@@ -130,21 +55,137 @@ class Segment:
     text: str
 
 
-def split_segment_by_chunks(seg: Segment, chunks: List[str], min_piece_dur: float = 0.20) -> List[Segment]:
+_ws_re = re.compile(r"\s+")
+
+
+def clean_one_line(s: str) -> str:
+    s = (s or "").replace("\r", " ").replace("\n", " ")
+    s = _ws_re.sub(" ", s).strip()
+    return s
+
+
+def srt_ts(t: float) -> str:
+    if t < 0:
+        t = 0.0
+    ms = int(round((t - math.floor(t)) * 1000.0))
+    total = int(math.floor(t))
+    sec = total % 60
+    total //= 60
+    minute = total % 60
+    hour = total // 60
+    return f"{hour:02d}:{minute:02d}:{sec:02d},{ms:03d}"
+
+
+def _is_cjk_char(ch: str) -> bool:
+    if not ch:
+        return False
+    o = ord(ch)
+    return (
+        0x4E00 <= o <= 0x9FFF  # CJK Unified Ideographs
+        or 0x3400 <= o <= 0x4DBF  # CJK Extension A
+        or 0x3000 <= o <= 0x303F  # CJK Symbols & Punctuation
+        or 0xFF00 <= o <= 0xFFEF  # Halfwidth/Fullwidth
+    )
+
+
+def split_text_chunks(text: str, max_chars: int) -> List[str]:
+    """
+    Greedy splitting:
+    - For English-ish: split on spaces where possible.
+    - For CJK-ish: split on punctuation or hard-cut.
+    Keeps logic simple and deterministic.
+    """
+    t = clean_one_line(text)
+    if not t:
+        return []
+
+    # Heuristic: treat as CJK if it contains any CJK char and has few spaces
+    has_cjk = any(_is_cjk_char(ch) for ch in t)
+    space_count = t.count(" ")
+    cjk_mode = has_cjk and space_count <= max(1, len(t) // 30)
+
+    if len(t) <= max_chars:
+        return [t]
+
+    if not cjk_mode:
+        # Word-based greedy split
+        words = t.split(" ")
+        out: List[str] = []
+        cur: List[str] = []
+        cur_len = 0
+        for w in words:
+            if not w:
+                continue
+            add_len = (1 if cur else 0) + len(w)
+            if cur and cur_len + add_len > max_chars:
+                out.append(" ".join(cur))
+                cur = [w]
+                cur_len = len(w)
+            else:
+                cur.append(w)
+                cur_len += add_len
+        if cur:
+            out.append(" ".join(cur))
+        # If any chunk still too long (very long tokens), hard cut
+        final: List[str] = []
+        for c in out:
+            if len(c) <= max_chars:
+                final.append(c)
+            else:
+                for i in range(0, len(c), max_chars):
+                    final.append(c[i : i + max_chars])
+        return final
+
+    # CJK-ish: split at punctuation first, otherwise hard cut
+    # Prefer split points near the end of the window.
+    split_punct = set("，。！？；：、,.!?;:")
+    out: List[str] = []
+    i = 0
+    n = len(t)
+    while i < n:
+        j = min(i + max_chars, n)
+        if j == n:
+            out.append(t[i:j])
+            break
+
+        # Look back for best punctuation split
+        k = j
+        best = -1
+        for k in range(j - 1, i, -1):
+            if t[k] in split_punct:
+                best = k + 1
+                break
+
+        if best != -1 and best > i:
+            out.append(t[i:best].strip())
+            i = best
+        else:
+            out.append(t[i:j].strip())
+            i = j
+
+    return [c for c in out if c]
+
+
+def split_segment_by_chunks(seg: Segment, chunks: List[str]) -> List[Segment]:
     if not chunks:
         return []
-    start = float(seg.start)
-    end = float(seg.end)
-    dur = max(end - start, min_piece_dur * len(chunks))
-    piece = max(dur / len(chunks), min_piece_dur)
+    if len(chunks) == 1:
+        return [Segment(seg.start, seg.end, chunks[0])]
 
+    total_chars = sum(max(1, len(c)) for c in chunks)
+    dur = max(0.0, seg.end - seg.start)
     out: List[Segment] = []
-    for i, chunk in enumerate(chunks):
-        s = start + i * piece
-        e = start + (i + 1) * piece
+    start = seg.start
+    acc = 0.0
+    for i, c in enumerate(chunks):
+        w = max(1, len(c))
+        piece = dur * (w / total_chars)
+        s = start + acc
+        e = start + acc + piece
+        acc += piece
         if i == len(chunks) - 1:
-            e = max(e, end)
-        out.append(Segment(s, e, chunk))
+            e = seg.end
+        out.append(Segment(s, e, c))
     return out
 
 
@@ -154,10 +195,6 @@ def write_bilingual_srt(
     make_pair: Callable[[str], Tuple[str, str]],
     max_chars_src: int,
 ) -> None:
-    """
-    make_pair(src_text) -> (english, chinese), both single-line.
-    Splits the *source* text into chunks first to keep cues short and single-line.
-    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     lines: List[str] = []
@@ -180,7 +217,6 @@ def write_bilingual_srt(
             en = clean_one_line(en)
             zh = clean_one_line(zh)
 
-            # Enforce exactly two lines per cue
             lines.append(str(idx))
             lines.append(f"{srt_ts(sseg.start)} --> {srt_ts(sseg.end)}")
             lines.append(en)
@@ -192,103 +228,230 @@ def write_bilingual_srt(
 
 
 # -------------------------
-# Argos Translate
+# Chinese punctuation normalization
 # -------------------------
-def ensure_argos(from_code: str, to_code: str) -> None:
-    import argostranslate.package
-    import argostranslate.translate
+def _normalize_zh_punctuation(text: str) -> str:
+    """
+    Convert ASCII punctuation into Chinese punctuation where appropriate.
+    - "," -> "，" unless between digits (1,000)
+    - "." -> "。" unless between digits (3.14)
+    Also converts ?, !, :, ;, parentheses to Chinese forms.
+    """
+    s = text or ""
+    out: List[str] = []
+    n = len(s)
 
-    def has_translation() -> bool:
-        langs = argostranslate.translate.get_installed_languages()
-        fr = next((l for l in langs if l.code == from_code), None)
-        to = next((l for l in langs if l.code == to_code), None)
-        return bool(fr and to and fr.get_translation(to) is not None)
+    for i, ch in enumerate(s):
+        prev = s[i - 1] if i > 0 else ""
+        nxt = s[i + 1] if i + 1 < n else ""
 
-    if has_translation():
-        return
+        if ch == ",":
+            if prev.isdigit() and nxt.isdigit():
+                out.append(",")
+            else:
+                out.append("，")
+        elif ch == ".":
+            if prev.isdigit() and nxt.isdigit():
+                out.append(".")
+            else:
+                out.append("。")
+        elif ch == "?":
+            out.append("？")
+        elif ch == "!":
+            out.append("！")
+        elif ch == ":":
+            out.append("：")
+        elif ch == ";":
+            out.append("；")
+        elif ch == "(":
+            out.append("（")
+        elif ch == ")":
+            out.append("）")
+        else:
+            out.append(ch)
 
-    emit("translate", 42, f"Argos model missing for {from_code}->{to_code}. Downloading...")
+    # Minor cleanup: remove spaces before Chinese punctuation
+    s2 = "".join(out)
+    s2 = re.sub(r"\s+([，。！？；：])", r"\1", s2)
+    return s2
 
-    argostranslate.package.update_package_index()
-    available = argostranslate.package.get_available_packages()
-    pkgs = [p for p in available if p.from_code == from_code and p.to_code == to_code]
-    if not pkgs:
-        raise RuntimeError(f"No Argos package available for {from_code}->{to_code}")
 
-    pkg = pkgs[0]
+# -------------------------
+# Best-free translation backend (Transformers/NLLB) + Argos fallback
+# -------------------------
+class Translator:
+    def __init__(self, preferred_model: str) -> None:
+        self._mode = "none"
+        self._preferred_model = preferred_model
 
-    # Download into a temp directory, handling both download() signatures:
-    import glob
-    import os
-    from pathlib import Path
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as td:
-        td_path = Path(td)
-        old_cwd = os.getcwd()
+        # Try best-free local translation first
         try:
-            os.chdir(td)
+            import torch  # noqa: F401
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer  # noqa: F401
 
-            downloaded_path = None
+            self._mode = "nllb"
+            self._torch = __import__("torch")
+            self._AutoTokenizer = __import__("transformers", fromlist=["AutoTokenizer"]).AutoTokenizer
+            self._AutoModel = __import__("transformers", fromlist=["AutoModelForSeq2SeqLM"]).AutoModelForSeq2SeqLM
 
-            # Signature A: download(dest_path)
-            try:
-                target = td_path / f"{from_code}_{to_code}.argosmodel"
-                ret = pkg.download(str(target))
-                downloaded_path = str(target) if ret is None else str(ret)
-            except TypeError:
-                # Signature B: download()
-                ret = pkg.download()
-                downloaded_path = str(ret) if ret else None
+            self._device = "cuda" if self._torch.cuda.is_available() else "cpu"
+            emit("translate", 42, f"Loading translation model '{preferred_model}' on {self._device}...")
 
-            # If we still don't have a path, locate the downloaded .argosmodel in temp dir
-            if not downloaded_path or not Path(downloaded_path).exists():
-                matches = sorted(glob.glob(str(td_path / "*.argosmodel")))
-                if not matches:
-                    raise RuntimeError("Argos package download completed but no .argosmodel file was found.")
-                downloaded_path = matches[0]
+            self._tokenizer = self._AutoTokenizer.from_pretrained(preferred_model)
+            self._model = self._AutoModel.from_pretrained(preferred_model)
+            self._model.to(self._device)
+            self._model.eval()
 
-        finally:
-            os.chdir(old_cwd)
+            # NLLB language codes
+            self._NLLB_EN = "eng_Latn"
+            self._NLLB_ZH = "zho_Hans"  # Simplified Chinese
 
-        argostranslate.package.install_from_path(downloaded_path)
+            emit("translate", 46, "Translation model ready (Transformers/NLLB).")
+            return
+        except Exception as ex:
+            # Fall back to Argos
+            self._mode = "argos"
+            emit("translate", 42, f"Transformers not available ({ex}). Falling back to Argos Translate...")
 
-    if not has_translation():
-        raise RuntimeError(f"Failed to install Argos model for {from_code}->{to_code}")
+        # Argos fallback
+        self._init_argos()
 
+    def _init_argos(self) -> None:
+        import glob
+        import tempfile
+        import argostranslate.package
+        import argostranslate.translate
 
-def make_argos_translator(from_code: str, to_code: str) -> Callable[[str], str]:
-    import argostranslate.translate
+        def has_translation(from_code: str, to_code: str) -> bool:
+            langs = argostranslate.translate.get_installed_languages()
+            fr = next((l for l in langs if l.code == from_code), None)
+            to = next((l for l in langs if l.code == to_code), None)
+            if not fr or not to:
+                return False
+            tr = fr.get_translation(to)
+            return tr is not None
 
-    langs = argostranslate.translate.get_installed_languages()
-    fr = next((l for l in langs if l.code == from_code), None)
-    to = next((l for l in langs if l.code == to_code), None)
-    if not fr or not to:
-        raise RuntimeError(f"Argos languages not installed: {from_code}, {to_code}")
+        def ensure_argos(from_code: str, to_code: str) -> None:
+            if has_translation(from_code, to_code):
+                return
 
-    tr = fr.get_translation(to)
-    if tr is None:
-        raise RuntimeError(f"Argos translation not available: {from_code}->{to_code}")
+            emit("translate", 44, f"Argos model missing for {from_code}->{to_code}. Downloading...")
+            argostranslate.package.update_package_index()
+            available = argostranslate.package.get_available_packages()
+            pkgs = [
+                p
+                for p in available
+                if getattr(p, "from_code", None) == from_code and getattr(p, "to_code", None) == to_code
+            ]
+            if not pkgs:
+                raise RuntimeError(f"No Argos package available for {from_code}->{to_code}")
 
-    def _t(text: str) -> str:
-        return tr.translate(text)
+            # Pick newest if possible
+            def _pkg_version(p) -> str:
+                return getattr(p, "package_version", None) or getattr(p, "version", None) or "0"
 
-    return _t
+            pkgs.sort(key=_pkg_version, reverse=True)
+            pkg = pkgs[0]
+
+            with tempfile.TemporaryDirectory() as td:
+                td_path = Path(td)
+                downloaded_path = None
+
+                # pkg.download() signature varies; handle both
+                try:
+                    target = td_path / f"{from_code}_{to_code}.argosmodel"
+                    ret = pkg.download(str(target))
+                    downloaded_path = str(target) if ret is None else str(ret)
+                except TypeError:
+                    ret = pkg.download()
+                    downloaded_path = str(ret) if ret else None
+
+                if not downloaded_path or not Path(downloaded_path).exists():
+                    matches = sorted(glob.glob(str(td_path / "*.argosmodel")))
+                    if not matches:
+                        raise RuntimeError("Argos package download completed but no .argosmodel file was found.")
+                    downloaded_path = matches[0]
+
+                argostranslate.package.install_from_path(downloaded_path)
+
+            if not has_translation(from_code, to_code):
+                raise RuntimeError(f"Failed to install Argos model for {from_code}->{to_code}")
+
+        def make_argos_translator(from_code: str, to_code: str) -> Callable[[str], str]:
+            langs = argostranslate.translate.get_installed_languages()
+            fr = next((l for l in langs if l.code == from_code), None)
+            to = next((l for l in langs if l.code == to_code), None)
+            if not fr or not to:
+                raise RuntimeError(f"Argos languages not installed: {from_code}, {to_code}")
+            tr = fr.get_translation(to)
+            if tr is None:
+                raise RuntimeError(f"Argos translation not available: {from_code}->{to_code}")
+
+            def _t(text: str) -> str:
+                return tr.translate(text)
+
+            return _t
+
+        ensure_argos("en", "zh")
+        ensure_argos("zh", "en")
+        self._argos_en2zh = make_argos_translator("en", "zh")
+        self._argos_zh2en = make_argos_translator("zh", "en")
+        emit("translate", 46, "Translation model ready (Argos fallback).")
+
+    def _nllb_translate(self, text: str, src_lang: str, tgt_lang: str) -> str:
+        t = clean_one_line(text)
+        if not t:
+            return ""
+
+        # NLLB: set source language, then force BOS token to target language
+        self._tokenizer.src_lang = src_lang
+        inputs = self._tokenizer(t, return_tensors="pt", truncation=True)
+        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+
+        forced_bos = self._tokenizer.lang_code_to_id[tgt_lang]
+        with self._torch.no_grad():
+            out_ids = self._model.generate(
+                **inputs,
+                forced_bos_token_id=forced_bos,
+                max_new_tokens=256,
+                num_beams=4,
+            )
+        out = self._tokenizer.batch_decode(out_ids, skip_special_tokens=True)[0]
+        return clean_one_line(out)
+
+    def en2zh(self, text: str) -> str:
+        if self._mode == "nllb":
+            zh = self._nllb_translate(text, self._NLLB_EN, self._NLLB_ZH)
+        else:
+            zh = clean_one_line(self._argos_en2zh(text))
+        return _normalize_zh_punctuation(zh)
+
+    def zh2en(self, text: str) -> str:
+        if self._mode == "nllb":
+            return self._nllb_translate(text, self._NLLB_ZH, self._NLLB_EN)
+        return clean_one_line(self._argos_zh2en(text))
 
 
 # -------------------------
-# faster-whisper transcription
+# Whisper transcription
 # -------------------------
-def transcribe(input_path: Path, model_name: str, device: str, compute_type: str, language: Optional[str]) -> Tuple[List[Segment], str]:
+def transcribe(
+    input_path: Path,
+    model_name: str,
+    device: str,
+    compute_type: str,
+    language: Optional[str],
+) -> Tuple[List[Segment], str]:
     from faster_whisper import WhisperModel
 
     emit("transcribe", 10, f"Loading Whisper model '{model_name}' ({device}/{compute_type})...")
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
 
     emit("transcribe", 18, "Transcribing...")
-    seg_iter, info = model.transcribe(str(input_path), vad_filter=True, language=language)
+    lang = language.strip() if (language or "").strip() else None
+    seg_iter, info = model.transcribe(str(input_path), vad_filter=True, language=lang)
 
-    detected = (info.language or (language or "auto")).lower()
+    detected = (info.language or (lang or "auto")).lower()
     segments: List[Segment] = []
 
     for i, s in enumerate(seg_iter):
@@ -302,6 +465,9 @@ def transcribe(input_path: Path, model_name: str, device: str, compute_type: str
     return segments, detected
 
 
+# -------------------------
+# Main
+# -------------------------
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("input_path")
@@ -312,6 +478,7 @@ def main() -> int:
     ap.add_argument("--language", default=os.getenv("WHISPER_LANGUAGE", ""))  # empty => auto
     ap.add_argument("--max_chars_en", type=int, default=int(os.getenv("SRT_MAX_CHARS_EN", "45")))
     ap.add_argument("--max_chars_zh", type=int, default=int(os.getenv("SRT_MAX_CHARS_ZH", "22")))
+    ap.add_argument("--translate_model", default=os.getenv("TRANSLATE_MODEL", "facebook/nllb-200-distilled-600M"))
     args = ap.parse_args()
 
     in_path = Path(args.input_path).expanduser().resolve()
@@ -321,34 +488,37 @@ def main() -> int:
         if not in_path.exists():
             raise FileNotFoundError(f"Input file not found: {in_path}")
 
-        emit("extract_audio", 5, "Preparing media for transcription (ffmpeg required)...")
+        emit("init", 5, "Starting AI service...")
 
-        forced_lang = args.language.strip() or None
-        segments, detected = transcribe(in_path, args.model, args.device, args.compute_type, forced_lang)
+        segments, detected = transcribe(
+            in_path,
+            model_name=args.model,
+            device=args.device,
+            compute_type=args.compute_type,
+            language=args.language,
+        )
 
-        # Always output EN on top, ZH on bottom.
-        # If audio is English-ish: EN source, translate EN->ZH
-        # If audio is Chinese-ish: ZH source, translate ZH->EN (but still output EN then ZH)
-        detected_is_zh = detected.startswith("zh")
+        # Decide direction based on detected language
+        detected_is_zh = detected.startswith("zh") or detected.startswith("yue")
 
-        emit("translate", 45, "Ensuring Argos translation model is installed...")
+        emit("translate", 40, "Initializing translator...")
+        tr = Translator(args.translate_model)
+
         if detected_is_zh:
-            ensure_argos("zh", "en")
-            zh2en = make_argos_translator("zh", "en")
+            emit("translate", 50, "Detected Chinese input. Producing EN (top) + ZH (bottom).")
 
             def make_pair(src_zh: str) -> Tuple[str, str]:
-                zh_line = src_zh
-                en_line = zh2en(src_zh)
+                zh_line = _normalize_zh_punctuation(src_zh)
+                en_line = tr.zh2en(src_zh)
                 return en_line, zh_line
 
             max_chars_src = args.max_chars_zh
         else:
-            ensure_argos("en", "zh")
-            en2zh = make_argos_translator("en", "zh")
+            emit("translate", 50, "Detected non-Chinese input. Producing EN (top) + ZH (bottom).")
 
             def make_pair(src_en: str) -> Tuple[str, str]:
                 en_line = src_en
-                zh_line = en2zh(src_en)
+                zh_line = tr.en2zh(src_en)
                 return en_line, zh_line
 
             max_chars_src = args.max_chars_en
