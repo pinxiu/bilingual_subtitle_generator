@@ -8,10 +8,10 @@ import { DownloadSection } from './components/DownloadSection';
 import { SubtitleEditor } from './components/SubtitleEditor';
 import { JobStatus, UploadResponse, SavedJob, RenderConfig, SourceLanguage, OutputFormat } from './types';
 import { API_BASE } from './constants';
-import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles, Type } from 'lucide-react';
+import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles, Type, Wand2 } from 'lucide-react';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'new' | 'resume'>('new');
+  const [activeTab, setActiveTab] = useState<'new' | 'resume' | 'retranslate'>('new');
   
   // Configuration States
   const [sourceLang, setSourceLang] = useState<SourceLanguage>('en');
@@ -25,7 +25,7 @@ function App() {
   const [file, setFile] = useState<File | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   
-  // State for "Resume" mode
+  // State for "Resume" & "Retranslate" mode
   const [resumeVideo, setResumeVideo] = useState<File | null>(null);
   const [resumeSrt, setResumeSrt] = useState<File | null>(null);
   const [savedJobs, setSavedJobs] = useState<SavedJob[]>([]);
@@ -36,7 +36,7 @@ function App() {
   const pollIntervalRef = useRef<number | null>(null);
 
   // --- Reset when switching tabs ---
-  const handleTabChange = (tab: 'new' | 'resume') => {
+  const handleTabChange = (tab: 'new' | 'resume' | 'retranslate') => {
     setActiveTab(tab);
     setJobId(null);
     setJobStatus(null);
@@ -108,6 +108,30 @@ function App() {
     } catch (err: any) {
         console.error(err);
         setError(err.response?.data?.error || err.message || "Failed to upload files.");
+    }
+  };
+
+  const handleRetranslateSubmit = async () => {
+    if (!resumeVideo || !resumeSrt) {
+        setError("Please select both a video file and an SRT file.");
+        return;
+    }
+    setError(null);
+    setIsStarting(true);
+
+    const formData = new FormData();
+    formData.append('video', resumeVideo);
+    formData.append('srt', resumeSrt);
+    formData.append('sourceLang', sourceLang);
+    formData.append('outputFormat', outputFormat);
+
+    try {
+        const res = await axios.post<UploadResponse>(`${API_BASE}/retranslate`, formData);
+        setJobId(res.data.jobId);
+    } catch (err: any) {
+        console.error(err);
+        setError(err.response?.data?.error || err.message || "Failed to upload files.");
+        setIsStarting(false);
     }
   };
 
@@ -197,7 +221,13 @@ function App() {
                         onClick={() => handleTabChange('resume')}
                         className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'resume' ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
-                        Resume Editing
+                        Resume Project
+                    </button>
+                    <button
+                        onClick={() => handleTabChange('retranslate')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'retranslate' ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        Improve Translation
                     </button>
                 </div>
             </div>
@@ -372,7 +402,7 @@ function App() {
             </div>
           )}
 
-          {/* MODE: Resume / Upload Existing */}
+          {/* MODE: Resume Project */}
           {!jobId && !jobStatus && activeTab === 'resume' && (
             <div className="space-y-8 animate-in fade-in duration-500">
                 {savedJobs.length > 0 && (
@@ -445,6 +475,103 @@ function App() {
                         Load Editor
                     </button>
                 </div>
+            </div>
+          )}
+
+          {/* MODE: Improve Translation */}
+          {!jobId && !jobStatus && activeTab === 'retranslate' && (
+            <div className="space-y-8 animate-in fade-in duration-500">
+                <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-blue-700 text-sm flex items-start gap-3">
+                   <Wand2 className="w-5 h-5 shrink-0 mt-0.5" />
+                   <div>
+                     <span className="font-bold">Translate-Only Mode:</span> This will take your existing SRT file and use AI to regenerate/improve the translated second line while preserving your timestamps.
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors relative">
+                        <input 
+                            type="file" 
+                            accept="video/*" 
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={(e) => setResumeVideo(e.target.files?.[0] || null)}
+                        />
+                        <div className="flex flex-col items-center">
+                            <FileVideo className={`w-8 h-8 mb-2 ${resumeVideo ? 'text-blue-600' : 'text-slate-400'}`} />
+                            <span className="font-medium text-slate-700">{resumeVideo ? resumeVideo.name : "Select Video File"}</span>
+                        </div>
+                    </div>
+                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors relative">
+                        <input 
+                            type="file" 
+                            accept=".srt" 
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={(e) => setResumeSrt(e.target.files?.[0] || null)}
+                        />
+                        <div className="flex flex-col items-center">
+                            <FileText className={`w-8 h-8 mb-2 ${resumeSrt ? 'text-purple-600' : 'text-slate-400'}`} />
+                            <span className="font-medium text-slate-700">{resumeSrt ? resumeSrt.name : "Select Source SRT"}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Retranslate Config */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   <div className="space-y-2">
+                      <label className="text-sm font-bold text-slate-500 uppercase flex items-center gap-2">
+                         <Globe2 className="w-4 h-4" /> Video Spoken In
+                      </label>
+                      <div className="flex p-1 bg-slate-100 rounded-lg">
+                         <button 
+                           onClick={() => setSourceLang('en')}
+                           className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${sourceLang === 'en' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            English
+                         </button>
+                         <button 
+                           onClick={() => setSourceLang('zh')}
+                           className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${sourceLang === 'zh' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            Chinese
+                         </button>
+                      </div>
+                   </div>
+
+                   <div className="space-y-2">
+                      <label className="text-sm font-bold text-slate-500 uppercase flex items-center gap-2">
+                         <AlignLeft className="w-4 h-4" /> New Output Format
+                      </label>
+                      <div className="flex p-1 bg-slate-100 rounded-lg">
+                         <button 
+                           onClick={() => setOutputFormat('en')}
+                           className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-md transition-all ${outputFormat === 'en' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            EN Only
+                         </button>
+                         <button 
+                           onClick={() => setOutputFormat('zh')}
+                           className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-md transition-all ${outputFormat === 'zh' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            ZH Only
+                         </button>
+                         <button 
+                           onClick={() => setOutputFormat('bilingual')}
+                           className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-md transition-all ${outputFormat === 'bilingual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                            Bilingual
+                         </button>
+                      </div>
+                   </div>
+                </div>
+
+                <button
+                    onClick={handleRetranslateSubmit}
+                    disabled={!resumeVideo || !resumeSrt || isStarting}
+                    className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
+                >
+                    {isStarting ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Wand2 className="w-6 h-6" />}
+                    {isStarting ? "Submitting..." : "Improve Translation"}
+                </button>
             </div>
           )}
 

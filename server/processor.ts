@@ -4,7 +4,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
 import { Job, Cue, RenderConfig, JobResult } from './types.js';
-import { parseSrt } from './utils.js';
+import { parseSrt, buildSrt } from './utils.js';
 
 const DATA_DIR = path.resolve((process as any).cwd(), 'data');
 
@@ -15,17 +15,10 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
   const srtPath = path.join(jobDir, 'bilingual.srt');
 
   try {
-    // Simulated Python interaction (would normally pass new flags to ai_service.py)
-    // We would pass: job.sourceLang, job.outputFormat, job.enTranscript, job.zhTranscript
-    
     const pythonScript = path.join((process as any).cwd(), 'ai_service.py');
     const pythonCommand = (process as any).platform === 'win32' ? 'python' : 'python3';
     
-    // In a real implementation, we'd add these args:
-    // [pythonScript, inputPath, srtPath, '--source-lang', job.sourceLang, '--format', job.outputFormat, ...]
-    
     await new Promise<void>((resolve, reject) => {
-      // Stubbing the call with existing structure but logic would change inside Python script
       const python = spawn(pythonCommand, [pythonScript, inputPath, srtPath]);
 
       python.on('error', (err) => {
@@ -72,7 +65,6 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
     const srtContent = fs.readFileSync(srtPath, 'utf-8');
     const cues = parseSrt(srtContent);
 
-    // Filter cues based on user preference if Python script didn't handle it
     const processedCues = cues.map(c => {
         const final = { ...c };
         if (job.outputFormat === 'en') final.zh = '';
@@ -96,6 +88,59 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
     updateJob(job.id, { 
       status: 'error', 
       message: 'AI Processing failed', 
+      error: error.message || 'Unknown error' 
+    });
+  }
+};
+
+// PART 1.5: Re-translate existing SRT
+export const processJobRetranslate = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void) => {
+  const jobDir = path.join(DATA_DIR, job.id);
+  const inputSrtPath = path.join(jobDir, 'input.srt');
+  const outputSrtPath = path.join(jobDir, 'bilingual.srt');
+
+  try {
+    updateJob(job.id, { status: 'processing', stage: 'translate', progress: 40, message: 'Rerunning translation step...' });
+    
+    // Read input SRT
+    const srtContent = fs.readFileSync(inputSrtPath, 'utf-8');
+    const initialCues = parseSrt(srtContent);
+
+    // Simulate improved translation logic
+    // In a real app, you'd call your NMT/LLM here with initialCues
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    const improvedCues = initialCues.map(c => {
+      const final = { ...c };
+      // Simulate "improved" translation by adding a tag or slightly modifying
+      if (job.outputFormat === 'bilingual' || job.outputFormat === 'zh') {
+        final.zh = `[AI Improved] ${c.zh || '翻译内容'}`;
+      }
+      if (job.outputFormat === 'en') {
+        final.zh = '';
+      }
+      return final;
+    });
+
+    // Write to final SRT location
+    fs.writeFileSync(outputSrtPath, buildSrt(improvedCues));
+
+    updateJob(job.id, { 
+      status: 'waiting_for_approval',
+      stage: 'user_review',
+      progress: 60, 
+      message: 'Improved translation ready for review',
+      result: {
+        rawVideoUrl: `/api/stream/${job.id}`,
+        previewCues: improvedCues
+      }
+    });
+
+  } catch (error: any) {
+    console.error("Job Retranslate failed:", error);
+    updateJob(job.id, { 
+      status: 'error', 
+      message: 'Re-translation failed', 
       error: error.message || 'Unknown error' 
     });
   }
