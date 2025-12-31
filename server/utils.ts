@@ -33,9 +33,16 @@ export function parseSrt(srtContent: string): Cue[] {
     
     const [start, end] = timeLine.split(' --> ');
 
-    const en = lines[2] || "";
+    let en = lines[2] || "";
     // If line 3 exists, use it. If not, it's a standard SRT, so leave zh empty.
-    const zh = lines[3] || ""; 
+    let zh = lines[3] || ""; 
+
+    // Heuristic: If we have a 3-line block (implying monolingual SRT)
+    // and the text contains Chinese characters, assume it's Chinese.
+    if (!zh && /[\u4e00-\u9fa5]/.test(en)) {
+        zh = en;
+        en = '';
+    }
 
     if (start && end) {
       cues.push({ start, end, en, zh });
@@ -47,9 +54,14 @@ export function parseSrt(srtContent: string): Cue[] {
 // Rebuild SRT content from Cue objects (for saving edits)
 export function buildSrt(cues: Cue[]): string {
   return cues.map((cue, index) => {
-    // Only add the 4th line if there is Chinese text, otherwise standard SRT parsers might get confused 
-    // depending on their strictness, but for our bilingual app we enforce the 4-line block structure
-    // to ensure we can read it back correctly.
-    return `${index + 1}\n${cue.start} --> ${cue.end}\n${cue.en}\n${cue.zh}`;
+    let textPart = '';
+    if (cue.en && cue.zh) {
+      textPart = `${cue.en}\n${cue.zh}`;
+    } else if (cue.en) {
+      textPart = cue.en;
+    } else if (cue.zh) {
+      textPart = cue.zh;
+    }
+    return `${index + 1}\n${cue.start} --> ${cue.end}\n${textPart}`;
   }).join('\n\n');
 }
