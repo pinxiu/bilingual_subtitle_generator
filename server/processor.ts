@@ -228,6 +228,7 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
     }
 
     const result: JobResult = {
+        rawVideoUrl: `/api/stream/${job.id}`,
         previewCues: originalCues,
         renderedPreviewCues: fs.existsSync(outputSrtPath)
           ? parseSrt(fs.readFileSync(outputSrtPath, 'utf-8'))
