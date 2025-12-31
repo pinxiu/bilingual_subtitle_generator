@@ -283,7 +283,7 @@ app.get('/api/download/:jobId/:type', (req: any, res: any) => {
   const { jobId, type } = req.params;
   const job = jobs.get(jobId);
 
-  if (!job || job.status !== 'done') {
+  if (!job || job.status !== 'done' || !job.result) {
     return res.status(404).json({ error: 'File not ready or job not found' });
   }
 
@@ -291,20 +291,22 @@ app.get('/api/download/:jobId/:type', (req: any, res: any) => {
   let filePath = '';
   let downloadName = '';
 
+  const { srtFilename, softVideoFilename, burnVideoFilename } = job.result;
+
   switch (type) {
     case 'srt':
       // Use output_srt.srt if it exists (filtered version from last render), otherwise fallback to bilingual.srt
       const outputSrtPath = path.join(jobDir, 'output_srt.srt');
       filePath = fs.existsSync(outputSrtPath) ? outputSrtPath : path.join(jobDir, 'bilingual.srt');
-      downloadName = 'subtitles.srt';
+      downloadName = srtFilename || 'subtitles.srt';
       break;
     case 'soft':
-      filePath = path.join(jobDir, 'output_soft.mp4');
-      downloadName = 'video_soft_subs.mp4';
+      filePath = path.join(jobDir, softVideoFilename || 'output_soft.mp4');
+      downloadName = softVideoFilename || 'video_soft_subs.mp4';
       break;
     case 'burn':
-      filePath = path.join(jobDir, 'output_burned.mp4');
-      downloadName = 'video_burned_subs.mp4';
+      filePath = path.join(jobDir, burnVideoFilename || 'output_burned.mp4');
+      downloadName = burnVideoFilename || 'video_burned_subs.mp4';
       break;
     default:
       return res.status(400).json({ error: 'Invalid type' });

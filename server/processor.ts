@@ -1,4 +1,3 @@
-
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -116,9 +115,16 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
 export const processJobFinalize = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void, config?: RenderConfig) => {
   const jobDir = path.join(DATA_DIR, job.id);
   const inputPath = job.filePath!;
+
+  // Derive output filenames from original
+  const originalBasename = path.basename(job.originalFilename, path.extname(job.originalFilename));
+  const softVideoFilename = `${originalBasename}_soft.mp4`;
+  const burnVideoFilename = `${originalBasename}_burned.mp4`;
+  const srtFilename = `${originalBasename}.srt`;
+
   const srtPath = path.join(jobDir, 'bilingual.srt');
-  const softVideoPath = path.join(jobDir, 'output_soft.mp4');
-  const burnVideoPath = path.join(jobDir, 'output_burned.mp4');
+  const softVideoPath = path.join(jobDir, softVideoFilename);
+  const burnVideoPath = path.join(jobDir, burnVideoFilename);
 
   const safeConfig: RenderConfig = config || {
     renderSoft: true,
@@ -130,7 +136,7 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
       outlineColour: '&H80000000',
       backColour: '&H80000000',
       bold: false,
-      borderStyle: 1, 
+      borderStyle: 1,
       outline: 2,
       shadow: 0,
       marginV: 20,
@@ -142,34 +148,40 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
     // Normalize subtitle mode (fallback to bilingual if not specified)
     const subtitleMode = safeConfig.subtitleMode || 'bilingual';
 
-    // Create a filtered SRT file for rendering (preserve original bilingual.srt for editing)
-    let renderSrtPath = path.join(jobDir, 'render_temp.srt');
-    const outputSrtPath = path.join(jobDir, 'output_srt.srt'); // For download
-    
-    if (fs.existsSync(srtPath)) {
-      const originalSrt = fs.readFileSync(srtPath, 'utf-8');
-      const originalCues = parseSrt(originalSrt);
+    // 1. Get the source cues, preferring in-memory data from the last edit
+    const originalCues = (job.result?.previewCues && job.result.previewCues.length > 0)
+      ? job.result.previewCues
+      : fs.existsSync(srtPath)
+        ? parseSrt(fs.readFileSync(srtPath, 'utf-8'))
+        : [];
 
-      // Only filter if not bilingual (to preserve original when bilingual)
-      const filteredCues: Cue[] = subtitleMode === 'bilingual' 
-        ? originalCues 
+    let renderSrtPath = '';
+    const outputSrtPath = path.join(jobDir, 'output_srt.srt');
+
+    // 2. If we need to render video, prepare the filtered SRT file
+    if (safeConfig.renderSoft || safeConfig.renderBurn) {
+      if (originalCues.length === 0) {
+        throw new Error("Cannot render video: subtitle data is missing.");
+      }
+      
+      const filteredCues: Cue[] = subtitleMode === 'bilingual'
+        ? originalCues
         : originalCues.map(c => {
             const next = { ...c };
-            if (subtitleMode === 'en') {
-              next.zh = '';
-            } else if (subtitleMode === 'zh') {
-              next.en = '';
-            }
+            if (subtitleMode === 'en') next.zh = '';
+            else if (subtitleMode === 'zh') next.en = '';
             return next;
           });
 
       const filteredSrt = buildSrt(filteredCues);
-      // Write filtered version for rendering and download
+      renderSrtPath = path.join(jobDir, 'render_temp.srt');
+      
       fs.writeFileSync(renderSrtPath, filteredSrt, 'utf-8');
       fs.writeFileSync(outputSrtPath, filteredSrt, 'utf-8');
-    } else {
-      // Fallback: use bilingual.srt if it doesn't exist
-      renderSrtPath = srtPath;
+    } else if (originalCues.length > 0) {
+      // If not rendering video, but we have subs, still provide an SRT for download
+      const srtContent = buildSrt(originalCues);
+      fs.writeFileSync(outputSrtPath, srtContent, 'utf-8');
     }
 
     if (safeConfig.renderSoft) {
@@ -178,7 +190,7 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
           ffmpeg()
             .input(inputPath)
             .input(renderSrtPath)
-            .outputOptions('-c copy') 
+            .outputOptions('-c copy')
             .outputOptions('-c:s mov_text')
             .save(softVideoPath)
             .on('end', () => resolve())
@@ -215,19 +227,16 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
         });
     }
 
-    // For editor, use the original bilingual cues so user can switch languages later
-    const originalSrtContent = fs.readFileSync(srtPath, 'utf-8');
-    const originalCues = parseSrt(originalSrtContent);
-
     const result: JobResult = {
         previewCues: originalCues,
-        // For final preview, show what was actually rendered (filtered SRT),
-        // falling back to bilingual if for some reason the filtered file is missing.
         renderedPreviewCues: fs.existsSync(outputSrtPath)
           ? parseSrt(fs.readFileSync(outputSrtPath, 'utf-8'))
           : originalCues,
         renderedSubtitleMode: subtitleMode,
         srtUrl: `/api/download/${job.id}/srt`,
+        srtFilename: srtFilename,
+        softVideoFilename: softVideoFilename,
+        burnVideoFilename: burnVideoFilename
     };
 
     if (safeConfig.renderSoft && fs.existsSync(softVideoPath)) {

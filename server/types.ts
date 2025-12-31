@@ -47,6 +47,9 @@ export interface JobResult {
   softVideoUrl?: string;
   burnVideoUrl?: string;
   rawVideoUrl?: string;
+  srtFilename?: string;
+  softVideoFilename?: string;
+  burnVideoFilename?: string;
   // Bilingual cues for editing
   previewCues?: Cue[];
   // Filtered cues that match the last rendered output
