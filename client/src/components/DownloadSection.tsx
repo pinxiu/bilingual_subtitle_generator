@@ -1,5 +1,5 @@
 import React from 'react';
-import { JobResult } from '../types';
+import { JobResult, OutputFormat } from '../types';
 import { FileDown, Film, Subtitles } from 'lucide-react';
 
 interface DownloadSectionProps {
@@ -13,6 +13,16 @@ const getFullUrl = (path?: string) => {
 };
 
 export const DownloadSection: React.FC<DownloadSectionProps> = ({ result }) => {
+  const mode: OutputFormat | 'bilingual' =
+    result.renderedSubtitleMode || 'bilingual';
+
+  const srtLabel =
+    mode === 'en'
+      ? 'English .srt file'
+      : mode === 'zh'
+      ? 'Chinese .srt file'
+      : 'Bilingual .srt file';
+
   return (
     <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
       <a 
@@ -26,7 +36,7 @@ export const DownloadSection: React.FC<DownloadSectionProps> = ({ result }) => {
         </div>
         <div className="text-left">
           <div className="font-semibold text-slate-800">Download SRT</div>
-          <div className="text-xs text-slate-500">Bilingual .srt file</div>
+          <div className="text-xs text-slate-500">{srtLabel}</div>
         </div>
       </a>
 

@@ -293,7 +293,9 @@ app.get('/api/download/:jobId/:type', (req: any, res: any) => {
 
   switch (type) {
     case 'srt':
-      filePath = path.join(jobDir, 'bilingual.srt');
+      // Use output_srt.srt if it exists (filtered version from last render), otherwise fallback to bilingual.srt
+      const outputSrtPath = path.join(jobDir, 'output_srt.srt');
+      filePath = fs.existsSync(outputSrtPath) ? outputSrtPath : path.join(jobDir, 'bilingual.srt');
       downloadName = 'subtitles.srt';
       break;
     case 'soft':

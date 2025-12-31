@@ -1,9 +1,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Cue, RenderConfig } from '../types';
-import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle, Link2, Unlink2, Download } from 'lucide-react';
+import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle, Link2, Unlink2, Download, Languages } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE } from '../constants';
+// @ts-ignore - opencc-js doesn't have TypeScript definitions
+import { Converter } from 'opencc-js';
 
 interface SubtitleEditorProps {
   jobId: string;
@@ -18,11 +20,60 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
   const [activeCueIndex, setActiveCueIndex] = useState<number>(-1);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
   // Preference: Auto-link adjacent segments
   const [autoLinkSegments, setAutoLinkSegments] = useState(true);
 
+  // UI: Which language(s) to show while reviewing
+  // 'bilingual' = EN on top, ZH below (default)
+  // 'en'        = English only
+  // 'zh'        = Chinese only
+  const [displayMode, setDisplayMode] = useState<'bilingual' | 'en' | 'zh'>('bilingual');
+
+  const handleDisplayModeChange = (mode: 'bilingual' | 'en' | 'zh') => {
+    setDisplayMode(mode);
+    setHasUnsavedChanges(true);
+  };
+
+  // Chinese variant: 'simplified' or 'traditional'
+  const [chineseVariant, setChineseVariant] = useState<'simplified' | 'traditional'>('simplified');
+
   const videoRef = useRef<HTMLVideoElement>(null);
+  
+  // Initialize OpenCC converters (lazy-loaded)
+  const [converters, setConverters] = useState<{
+    s2t: ((text: string) => string) | null;
+    t2s: ((text: string) => string) | null;
+  }>({ s2t: null, t2s: null });
+
+  // Initialize converters on mount
+  useEffect(() => {
+    try {
+      // opencc-js uses 'cn' for Simplified and 'tw' for Traditional
+      const s2t = Converter({ from: 'cn', to: 'tw' });
+      const t2s = Converter({ from: 'tw', to: 'cn' });
+      setConverters({ s2t, t2s });
+    } catch (error) {
+      console.error('Failed to initialize OpenCC:', error);
+    }
+    
+    // Load preferences from local storage
+    const savedPrefs = localStorage.getItem('bilingual_subtitle_editor_prefs');
+    if (savedPrefs) {
+        try {
+            const prefs = JSON.parse(savedPrefs);
+            if (prefs.displayMode) {
+                setDisplayMode(prefs.displayMode);
+            }
+            if (prefs.chineseVariant) {
+                setChineseVariant(prefs.chineseVariant);
+            }
+        } catch(e) {
+            console.error("Failed to parse saved preferences", e);
+        }
+    }
+  }, []);
   
   // Render Config Modal
   const [showRenderModal, setShowRenderModal] = useState(false);
@@ -96,6 +147,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     const newCues = [...cues];
     newCues[index] = { ...newCues[index], [field]: value };
     setCues(newCues);
+    setHasUnsavedChanges(true);
   };
 
   const addToHistory = () => {
@@ -109,12 +161,30 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     setCues(previous);
   };
 
+  // Convert all Chinese text between Traditional and Simplified
+  const handleChineseVariantChange = (newVariant: 'simplified' | 'traditional') => {
+    if (newVariant === chineseVariant || !converters.s2t || !converters.t2s) return;
+    
+    addToHistory();
+    
+    const converter = newVariant === 'traditional' ? converters.s2t : converters.t2s;
+    const newCues = cues.map(cue => ({
+      ...cue,
+      zh: cue.zh ? converter(cue.zh) : ''
+    }));
+    
+    setCues(newCues);
+    setChineseVariant(newVariant);
+    setHasUnsavedChanges(true);
+  };
+
   const handleDeleteCue = (index: number, e: React.MouseEvent) => {
     e.stopPropagation();
     addToHistory();
     const newCues = [...cues];
     newCues.splice(index, 1);
     setCues(newCues);
+    setHasUnsavedChanges(true);
   };
 
   const handleMergePrevious = (index: number, e: React.MouseEvent) => {
@@ -136,6 +206,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     const newCues = [...cues];
     newCues.splice(index - 1, 2, newCue);
     setCues(newCues);
+    setHasUnsavedChanges(true);
   };
 
   const handleSplitCue = (index: number, e: React.MouseEvent) => {
@@ -161,6 +232,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     const newCues = [...cues];
     newCues.splice(index, 1, firstPart, secondPart);
     setCues(newCues);
+    setHasUnsavedChanges(true);
   };
 
   const handleSetTime = (index: number, field: 'start' | 'end', e: React.MouseEvent) => {
@@ -185,6 +257,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     }
     
     setCues(newCues);
+    setHasUnsavedChanges(true);
   };
 
   const handleInsertCue = (index: number, position: 'start' | 'end' | 'after') => {
@@ -246,13 +319,19 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
     }
     
     setCues(newCues);
+    setHasUnsavedChanges(true);
   };
 
   const saveProgress = async () => {
     setIsSaving(true);
     try {
-       await axios.post(`${API_BASE}/job/${jobId}/update`, { cues });
-       setLastSaved(new Date());
+      // Persist UI preferences
+      const prefs = { displayMode, chineseVariant };
+      localStorage.setItem('bilingual_subtitle_editor_prefs', JSON.stringify(prefs));
+
+      await axios.post(`${API_BASE}/job/${jobId}/update`, { cues });
+      setLastSaved(new Date());
+      setHasUnsavedChanges(false);
     } catch (err) {
       console.error("Failed to save progress", err);
       alert("Failed to save progress.");
@@ -266,13 +345,18 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
   };
 
   const confirmRender = async () => {
+    // Derive which language(s) should be rendered from the current display mode
+    const subtitleMode =
+      displayMode === 'en' ? 'en' :
+      displayMode === 'zh' ? 'zh' : 'bilingual';
+
     setShowRenderModal(false);
     setIsSaving(true);
     try {
       // 1. Save Edits
       await axios.post(`${API_BASE}/job/${jobId}/update`, { cues });
       // 2. Continue with config
-      onContinue(renderConfig);
+      onContinue({ ...renderConfig, subtitleMode });
     } catch (err) {
       console.error("Failed to save/resume", err);
       alert("Failed to save changes. Please try again.");
@@ -300,15 +384,48 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
               <span className="bg-blue-600 text-xs px-2 py-1 rounded">Editor</span>
               Subtitle Review
             </h2>
-            {lastSaved && (
-              <span className="text-xs text-slate-400 flex items-center gap-1">
-                <Check className="w-3 h-3" />
-                Saved {lastSaved.toLocaleTimeString()}
-              </span>
-            )}
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {/* Display language toggle */}
+            <div className="hidden sm:flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-300">
+              <Languages className="w-3.5 h-3.5 text-slate-400" />
+              <span className="mr-1">Show</span>
+              <button
+                type="button"
+                onClick={() => handleDisplayModeChange('en')}
+                className={`px-2 py-0.5 rounded-md transition-colors ${
+                  displayMode === 'en'
+                    ? 'bg-blue-500 text-white'
+                    : 'text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDisplayModeChange('zh')}
+                className={`px-2 py-0.5 rounded-md transition-colors ${
+                  displayMode === 'zh'
+                    ? 'bg-blue-500 text-white'
+                    : 'text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                ZH
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDisplayModeChange('bilingual')}
+                className={`px-2 py-0.5 rounded-md transition-colors ${
+                  displayMode === 'bilingual'
+                    ? 'bg-blue-500 text-white'
+                    : 'text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                EN+ZH
+              </button>
+            </div>
+
             <button 
               onClick={() => setAutoLinkSegments(!autoLinkSegments)}
               className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-700 ${autoLinkSegments ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
@@ -332,10 +449,12 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
               onClick={saveProgress}
               disabled={isSaving}
               className="flex items-center space-x-2 bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-              title="Save Draft"
+              title={lastSaved ? `Last saved at ${lastSaved.toLocaleTimeString()}` : 'Save Draft'}
             >
-              <Save className="w-4 h-4"/>
-              <span className="hidden sm:inline">Save Draft</span>
+              <Save className={`w-4 h-4 ${lastSaved && !hasUnsavedChanges ? 'text-emerald-400' : ''}`} />
+              <span className="hidden sm:inline whitespace-nowrap">
+                {lastSaved && !hasUnsavedChanges ? 'Saved' : 'Save Draft'}
+              </span>
             </button>
             <button 
               onClick={handleFinishClick}
@@ -363,12 +482,18 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
             {activeCueIndex !== -1 && cues[activeCueIndex] && (
               <div className="absolute bottom-12 left-0 right-0 px-8 text-center pointer-events-none">
                  <div className="inline-block bg-black/70 backdrop-blur-sm p-3 rounded-xl">
-                   <p className="text-white text-lg sm:text-xl font-medium drop-shadow-md leading-relaxed">
-                     {cues[activeCueIndex].en}
-                   </p>
-                   <p className="text-yellow-400 text-lg sm:text-xl font-medium drop-shadow-md leading-relaxed mt-1">
-                     {cues[activeCueIndex].zh}
-                   </p>
+                   {/* Overlay EN */}
+                   {(displayMode === 'en' || displayMode === 'bilingual') && cues[activeCueIndex].en && (
+                     <p className="text-white text-lg sm:text-xl font-medium drop-shadow-md leading-relaxed">
+                       {cues[activeCueIndex].en}
+                     </p>
+                   )}
+                   {/* Overlay ZH */}
+                   {(displayMode === 'zh' || displayMode === 'bilingual') && cues[activeCueIndex].zh && (
+                     <p className="text-yellow-400 text-lg sm:text-xl font-medium drop-shadow-md leading-relaxed mt-1">
+                       {cues[activeCueIndex].zh}
+                     </p>
+                   )}
                  </div>
               </div>
             )}
@@ -376,6 +501,46 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
 
           {/* Subtitle List Column */}
           <div className="lg:col-span-2 bg-slate-50 overflow-y-auto border-l border-slate-200 p-4">
+             {/* List header with Chinese variant toggle */}
+             <div className="mb-3 flex items-center justify-between gap-2 text-xs text-slate-500">
+               <span className="font-semibold text-slate-600 uppercase tracking-wide">
+                 Subtitle Segments
+               </span>
+               {(displayMode === 'zh' || displayMode === 'bilingual') && (
+                 <div className="inline-flex items-center gap-1 bg-white/60 border border-slate-200 rounded-full px-2 py-0.5">
+                   <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                     中文字符集
+                   </span>
+                   <button
+                     type="button"
+                     onClick={() => handleChineseVariantChange('simplified')}
+                     disabled={!converters.s2t || !converters.t2s}
+                     className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
+                       chineseVariant === 'simplified'
+                         ? 'bg-green-500 text-white'
+                         : 'text-slate-500 hover:bg-slate-100'
+                     } disabled:opacity-30 disabled:cursor-not-allowed`}
+                     title="切换为简体中文"
+                   >
+                     简
+                   </button>
+                   <button
+                     type="button"
+                     onClick={() => handleChineseVariantChange('traditional')}
+                     disabled={!converters.s2t || !converters.t2s}
+                     className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
+                       chineseVariant === 'traditional'
+                         ? 'bg-green-500 text-white'
+                         : 'text-slate-500 hover:bg-slate-100'
+                     } disabled:opacity-30 disabled:cursor-not-allowed`}
+                     title="切换为繁體中文"
+                   >
+                     繁
+                   </button>
+                 </div>
+               )}
+             </div>
+
              {/* Add Start Button */}
              <button 
                 onClick={() => handleInsertCue(0, 'start')}
@@ -459,32 +624,38 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                  </div>
 
                  <div className="space-y-3">
-                   <div className="relative">
-                     <textarea
-                       value={cue.en}
-                       onClick={(e) => e.stopPropagation()}
-                       onChange={(e) => updateCue(idx, 'en', e.target.value)}
-                       rows={2}
-                       className="w-full text-sm p-3 pb-6 border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none resize-none font-medium text-slate-800 placeholder-slate-400 transition-all"
-                       placeholder="English text..."
-                     />
-                     <span className="absolute bottom-2 right-3 text-[10px] text-slate-400 font-mono">
-                       {cue.en.length}
-                     </span>
-                   </div>
-                   <div className="relative">
-                     <textarea
-                       value={cue.zh}
-                       onClick={(e) => e.stopPropagation()}
-                       onChange={(e) => updateCue(idx, 'zh', e.target.value)}
-                       rows={2}
-                       className="w-full text-sm p-3 pb-6 border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none resize-none text-slate-600 placeholder-slate-400 transition-all"
-                       placeholder="Chinese text..."
-                     />
-                     <span className="absolute bottom-2 right-3 text-[10px] text-slate-400 font-mono">
-                       {cue.zh.length}
-                     </span>
-                   </div>
+                   {/* EN text area – hide when Chinese-only mode */}
+                   {displayMode !== 'zh' && (
+                     <div className="relative">
+                       <textarea
+                         value={cue.en}
+                         onClick={(e) => e.stopPropagation()}
+                         onChange={(e) => updateCue(idx, 'en', e.target.value)}
+                         rows={2}
+                         className="w-full text-sm p-3 pb-6 border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none resize-none font-medium text-slate-800 placeholder-slate-400 transition-all"
+                         placeholder="English text..."
+                       />
+                       <span className="absolute bottom-2 right-3 text-[10px] text-slate-400 font-mono">
+                         {cue.en.length}
+                       </span>
+                     </div>
+                   )}
+                   {/* ZH text area – hide when English-only mode */}
+                   {displayMode !== 'en' && (
+                     <div className="relative">
+                       <textarea
+                         value={cue.zh}
+                         onClick={(e) => e.stopPropagation()}
+                         onChange={(e) => updateCue(idx, 'zh', e.target.value)}
+                         rows={2}
+                         className="w-full text-sm p-3 pb-6 border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none resize-none text-slate-600 placeholder-slate-400 transition-all"
+                         placeholder="Chinese text..."
+                       />
+                       <span className="absolute bottom-2 right-3 text-[10px] text-slate-400 font-mono">
+                         {cue.zh.length}
+                       </span>
+                     </div>
+                   )}
                  </div>
                </div>
                
@@ -567,8 +738,13 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
                                             )
                                         }}
                                     >
-                                        <div>This is a sample subtitle</div>
-                                        <div>这是一行示例字幕</div>
+                                        {/* Match burn preview language(s) to current display mode */}
+                                        {displayMode !== 'zh' && (
+                                          <div>This is a sample subtitle</div>
+                                        )}
+                                        {displayMode !== 'en' && (
+                                          <div>这是一行示例字幕</div>
+                                        )}
                                     </div>
                                 </div>
                            </div>

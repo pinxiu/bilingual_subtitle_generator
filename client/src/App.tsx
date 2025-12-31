@@ -120,6 +120,15 @@ function App() {
       }
   };
 
+  // When a job is already loaded and finished, allow reopening the editor
+  // without reprocessing by locally switching back to waiting_for_approval.
+  const handleReopenEditorForCurrentJob = () => {
+    setJobStatus(prev => prev && prev.result
+      ? { ...prev, status: 'waiting_for_approval', stage: 'user_review' }
+      : prev
+    );
+  };
+
   const pollStatus = async () => {
     if (!jobId) return;
 
@@ -466,13 +475,20 @@ function App() {
           {/* Final Results Area */}
           {jobStatus?.status === 'done' && jobStatus.result && (
             <div className="animate-in zoom-in duration-300">
-              <PreviewPanel cues={jobStatus.result.previewCues} />
+              <PreviewPanel cues={jobStatus.result.renderedPreviewCues || jobStatus.result.previewCues} />
               <DownloadSection result={jobStatus.result} />
-              
-              <div className="mt-8 text-center">
+
+              <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+                {/* Return to editor for this video without reprocessing */}
+                 <button
+                   onClick={handleReopenEditorForCurrentJob}
+                   className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                 >
+                   Adjust subtitles for this video
+                 </button>
                  <button 
-                  onClick={() => handleTabChange('new')}
-                  className="text-sm text-slate-500 hover:text-blue-600 font-medium underline flex items-center justify-center gap-2 mx-auto"
+                   onClick={() => handleTabChange('new')}
+                   className="text-sm text-slate-500 hover:text-blue-600 font-medium underline flex items-center justify-center gap-2"
                  >
                    <Sparkles className="w-4 h-4" />
                    Process another video

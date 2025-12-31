@@ -24,6 +24,9 @@ export type OutputFormat = 'en' | 'zh' | 'bilingual';
 export interface RenderConfig {
   renderSoft: boolean;
   renderBurn: boolean;
+  // Which language(s) to include in the final SRT / rendered video
+  // 'bilingual' (default) = EN + ZH, 'en' = EN only, 'zh' = ZH only
+  subtitleMode?: OutputFormat;
   burnConfig?: {
     fontSize: number;
     fontName: string;
@@ -44,7 +47,12 @@ export interface JobResult {
   softVideoUrl?: string;
   burnVideoUrl?: string;
   rawVideoUrl?: string;
+  // Bilingual cues for editing
   previewCues?: Cue[];
+  // Filtered cues that match the last rendered output
+  renderedPreviewCues?: Cue[];
+  // Language mode that was rendered ('en' | 'zh' | 'bilingual')
+  renderedSubtitleMode?: OutputFormat;
 }
 
 export interface Job {

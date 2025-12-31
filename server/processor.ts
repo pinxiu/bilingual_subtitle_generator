@@ -4,7 +4,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
 import { Job, Cue, RenderConfig, JobResult } from './types.js';
-import { parseSrt } from './utils.js';
+import { parseSrt, buildSrt } from './utils.js';
 
 const DATA_DIR = path.resolve((process as any).cwd(), 'data');
 
@@ -120,7 +120,7 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
   const softVideoPath = path.join(jobDir, 'output_soft.mp4');
   const burnVideoPath = path.join(jobDir, 'output_burned.mp4');
 
-  const safeConfig = config || {
+  const safeConfig: RenderConfig = config || {
     renderSoft: true,
     renderBurn: true,
     burnConfig: {
@@ -139,12 +139,45 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
   };
 
   try {
+    // Normalize subtitle mode (fallback to bilingual if not specified)
+    const subtitleMode = safeConfig.subtitleMode || 'bilingual';
+
+    // Create a filtered SRT file for rendering (preserve original bilingual.srt for editing)
+    let renderSrtPath = path.join(jobDir, 'render_temp.srt');
+    const outputSrtPath = path.join(jobDir, 'output_srt.srt'); // For download
+    
+    if (fs.existsSync(srtPath)) {
+      const originalSrt = fs.readFileSync(srtPath, 'utf-8');
+      const originalCues = parseSrt(originalSrt);
+
+      // Only filter if not bilingual (to preserve original when bilingual)
+      const filteredCues: Cue[] = subtitleMode === 'bilingual' 
+        ? originalCues 
+        : originalCues.map(c => {
+            const next = { ...c };
+            if (subtitleMode === 'en') {
+              next.zh = '';
+            } else if (subtitleMode === 'zh') {
+              next.en = '';
+            }
+            return next;
+          });
+
+      const filteredSrt = buildSrt(filteredCues);
+      // Write filtered version for rendering and download
+      fs.writeFileSync(renderSrtPath, filteredSrt, 'utf-8');
+      fs.writeFileSync(outputSrtPath, filteredSrt, 'utf-8');
+    } else {
+      // Fallback: use bilingual.srt if it doesn't exist
+      renderSrtPath = srtPath;
+    }
+
     if (safeConfig.renderSoft) {
         updateJob(job.id, { status: 'processing', stage: 'render_soft', progress: 85, message: 'Muxing soft subtitles stream...' });
         await new Promise<void>((resolve, reject) => {
           ffmpeg()
             .input(inputPath)
-            .input(srtPath)
+            .input(renderSrtPath)
             .outputOptions('-c copy') 
             .outputOptions('-c:s mov_text')
             .save(softVideoPath)
@@ -156,7 +189,7 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
     if (safeConfig.renderBurn) {
         updateJob(job.id, { stage: 'render_burn', progress: 90, message: 'Burning subtitles (this takes time)...' });
         await new Promise<void>((resolve, reject) => {
-           const escapedSrtPath = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+           const escapedSrtPath = renderSrtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
            const c = safeConfig.burnConfig!;
            const styleParts = [
              `FontName=${c.fontName || 'Arial'}`,
@@ -182,11 +215,18 @@ export const processJobFinalize = async (job: Job, updateJob: (id: string, parti
         });
     }
 
-    const finalSrtContent = fs.readFileSync(srtPath, 'utf-8');
-    const finalCues = parseSrt(finalSrtContent);
+    // For editor, use the original bilingual cues so user can switch languages later
+    const originalSrtContent = fs.readFileSync(srtPath, 'utf-8');
+    const originalCues = parseSrt(originalSrtContent);
 
     const result: JobResult = {
-        previewCues: finalCues,
+        previewCues: originalCues,
+        // For final preview, show what was actually rendered (filtered SRT),
+        // falling back to bilingual if for some reason the filtered file is missing.
+        renderedPreviewCues: fs.existsSync(outputSrtPath)
+          ? parseSrt(fs.readFileSync(outputSrtPath, 'utf-8'))
+          : originalCues,
+        renderedSubtitleMode: subtitleMode,
         srtUrl: `/api/download/${job.id}/srt`,
     };
 
