@@ -51,6 +51,7 @@ export interface JobStatus {
   message?: string;
   error?: string;
   result?: JobResult;
+  originalFilename?: string;
   // Config fields
   sourceLang?: SourceLanguage;
   outputFormat?: OutputFormat;

@@ -83,7 +83,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
     renderSoft: true,
     renderBurn: true,
     burnConfig: {
-      fontSize: 24, // Increased default for visibility
+      fontSize: 24, // Increased default for better visibility
       fontName: 'Arial',
       primaryColour: '&H00FFFFFF', // White
       outlineColour: '&H80000000', // Black transparent
@@ -96,6 +96,21 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
       lineHeight: 1.2
     }
   });
+
+  const [previewScale, setPreviewScale] = useState(1);
+  const previewBoost = 1.7; // Increased multiplier for even better legibility
+
+  const updatePreviewScale = () => {
+      if (videoRef.current && videoRef.current.videoHeight > 0) {
+          const scale = videoRef.current.clientHeight / videoRef.current.videoHeight;
+          setPreviewScale(scale);
+      }
+  };
+
+  useEffect(() => {
+      window.addEventListener('resize', updatePreviewScale);
+      return () => window.removeEventListener('resize', updatePreviewScale);
+  }, []);
 
   // Parse timestamp string "00:00:01,000" to seconds
   const parseTime = (timeStr: string) => {
@@ -433,41 +448,76 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 h-[700px]">
+        <div className="grid grid-cols-1 lg:grid-cols-5 h-[850px]">
           {/* Video Player Column */}
           <div className="lg:col-span-2 bg-black flex flex-col relative group">
-            <div className="h-2/3 flex items-start justify-center relative"> {/* Added wrapper for video to take available space */}
-                <video 
-                  ref={videoRef}
-                  src={`http://localhost:3001${videoUrl}`} 
-                  controls 
-                  className="w-full h-auto max-h-full"
-                  onTimeUpdate={handleTimeUpdate}
-                />
-                
-                {/* Overlay Preview */}
-                {activeCueIndex !== -1 && cues[activeCueIndex] && (
-                  <div className="absolute bottom-20 left-0 right-0 px-8 text-center pointer-events-none">
-                     <div className="inline-block bg-black/70 backdrop-blur-sm p-3 rounded-xl">
-                       {/* Overlay EN */}
-                       {(displayMode === 'en' || displayMode === 'bilingual') && cues[activeCueIndex].en && (
-                         <p className="text-white text-base sm:text-lg font-medium drop-shadow-md leading-relaxed">
-                           {cues[activeCueIndex].en}
-                         </p>
-                       )}
-                       {/* Overlay ZH */}
-                       {(displayMode === 'zh' || displayMode === 'bilingual') && cues[activeCueIndex].zh && (
-                         <p className="text-yellow-400 text-base sm:text-lg font-medium drop-shadow-md leading-relaxed mt-1">
-                           {cues[activeCueIndex].zh}
-                         </p>
-                       )}
-                     </div>
-                  </div>
-                )}
+            <div className="h-[40%] flex items-start justify-center relative bg-black overflow-hidden">
+                {/* Nested relative container that wraps the video content */}
+                <div className="relative">
+                    <video 
+                      ref={videoRef}
+                      src={`http://localhost:3001${videoUrl}`} 
+                      controls 
+                      className="max-w-full max-h-full block mx-auto"
+                      onTimeUpdate={handleTimeUpdate}
+                      onLoadedMetadata={updatePreviewScale}
+                    />
+                    
+                    {/* Overlay Preview */}
+                    {activeCueIndex !== -1 && cues[activeCueIndex] && (
+                      <div 
+                          className="absolute left-0 right-0 px-8 text-center pointer-events-none flex flex-col items-center"
+                          style={{ 
+                              // Positioned in the bottom 1/4 of the video area
+                              bottom: `${(renderConfig.burnConfig.marginV * previewScale) + 55}px` 
+                          }}
+                      >
+                         <div 
+                            style={{
+                                fontSize: `${renderConfig.burnConfig.fontSize * previewScale * previewBoost}px`,
+                                fontFamily: renderConfig.burnConfig.fontName,
+                                lineHeight: renderConfig.burnConfig.lineHeight,
+                                fontWeight: renderConfig.burnConfig.bold ? 'bold' : 'normal',
+                                color: 'white', 
+                                ...(renderConfig.burnConfig.borderStyle === 1 
+                                    ? { 
+                                        textShadow: `
+                                            -${renderConfig.burnConfig.outline * previewScale * previewBoost}px -${renderConfig.burnConfig.outline * previewScale * previewBoost}px 0 #000,  
+                                             ${renderConfig.burnConfig.outline * previewScale * previewBoost}px -${renderConfig.burnConfig.outline * previewScale * previewBoost}px 0 #000,
+                                            -${renderConfig.burnConfig.outline * previewScale * previewBoost}px  ${renderConfig.burnConfig.outline * previewScale * previewBoost}px 0 #000,
+                                             ${renderConfig.burnConfig.outline * previewScale * previewBoost}px  ${renderConfig.burnConfig.outline * previewScale * previewBoost}px 0 #000,
+                                             0px ${2 * previewScale}px ${4 * previewScale}px rgba(0,0,0,0.5)
+                                        `
+                                      } 
+                                    : { 
+                                        backgroundColor: 'rgba(0,0,0,0.6)', 
+                                        padding: `${4 * previewScale * previewBoost}px ${12 * previewScale * previewBoost}px`,
+                                        borderRadius: `${4 * previewScale * previewBoost}px`,
+                                        boxShadow: `0 ${2 * previewScale}px ${4 * previewScale}px rgba(0,0,0,0.2)`
+                                      }
+                                )
+                            }}
+                         >
+                           {/* Overlay EN */}
+                           {(displayMode === 'en' || displayMode === 'bilingual') && cues[activeCueIndex].en && (
+                             <div>
+                               {cues[activeCueIndex].en}
+                             </div>
+                           )}
+                           {/* Overlay ZH */}
+                           {(displayMode === 'zh' || displayMode === 'bilingual') && cues[activeCueIndex].zh && (
+                             <div>
+                               {cues[activeCueIndex].zh}
+                             </div>
+                           )}
+                         </div>
+                      </div>
+                    )}
+                </div>
             </div>
 
             {/* NEW: Video Properties and Subtitle Settings */}
-            <div className="bg-white dark:bg-slate-800 p-4 border-t border-slate-200 dark:border-slate-700 overflow-y-auto h-1/3">
+            <div className="bg-white dark:bg-slate-800 p-4 border-t border-slate-200 dark:border-slate-700 overflow-y-auto flex-1">
               <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-200 flex items-center gap-2">
                 <FileVideo className="w-4 h-4" />
                 Video Properties
@@ -556,6 +606,64 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                               </div>
                           </div>
                       )}
+
+                      {/* Burn Settings Divider */}
+                      <div className="h-px bg-slate-200 dark:bg-slate-600 my-2"></div>
+                      
+                      <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Burn Style</h4>
+
+                      {/* Font Size & Line Height */}
+                      <div className="grid grid-cols-2 gap-3">
+                           <div>
+                               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Font Size</label>
+                               <input 
+                                 type="number" 
+                                 value={renderConfig.burnConfig.fontSize}
+                                 onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, fontSize: parseInt(e.target.value) || 0}}))}
+                                 className="w-full p-1.5 text-xs border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
+                               />
+                           </div>
+                           <div>
+                               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Line Height</label>
+                               <input 
+                                 type="number"
+                                 step="0.1"
+                                 value={renderConfig.burnConfig.lineHeight}
+                                 onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, lineHeight: parseFloat(e.target.value) || 0}}))}
+                                 className="w-full p-1.5 text-xs border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
+                               />
+                           </div>
+                      </div>
+
+                      {/* Margin */}
+                      <div>
+                           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Vertical Margin</label>
+                           <input 
+                             type="number" 
+                             value={renderConfig.burnConfig.marginV}
+                             onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, marginV: parseInt(e.target.value) || 0}}))}
+                             className="w-full p-1.5 text-xs border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
+                           />
+                      </div>
+
+                      {/* Background Style */}
+                      <div>
+                           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Background</label>
+                           <div className="grid grid-cols-2 gap-2">
+                               <button 
+                                 onClick={() => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, borderStyle: 1}}))}
+                                 className={`p-1.5 text-xs rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 1 ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-500 text-blue-700 dark:text-blue-300 font-medium' : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 dark:text-slate-200'}`}
+                               >
+                                   Outline
+                               </button>
+                               <button 
+                                 onClick={() => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, borderStyle: 3}}))}
+                                 className={`p-1.5 text-xs rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 3 ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-500 text-blue-700 dark:text-blue-300 font-medium' : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 dark:text-slate-200'}`}
+                               >
+                                   Box
+                               </button>
+                           </div>
+                      </div>
                   </div>
               </div>
             </div>
@@ -810,63 +918,6 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                            </div>
                        </label>
                    </div>
-
-                   {/* Burn Settings */}
-                   {renderConfig.renderBurn && (
-                       <div className="space-y-4 animate-in slide-in-from-top-2">
-                           <div className="h-px bg-slate-200 dark:bg-slate-700"></div>
-                           <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Burn Appearance</label>
-                           
-                           <div className="grid grid-cols-3 gap-4">
-                               <div>
-                                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Font Size</label>
-                                   <input 
-                                     type="number" 
-                                     value={renderConfig.burnConfig.fontSize}
-                                     onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, fontSize: parseInt(e.target.value) || 0}}))}
-                                     className="w-full p-2 border dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
-                                   />
-                               </div>
-                               <div>
-                                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Line Height</label>
-                                   <input 
-                                     type="number"
-                                     step="0.1"
-                                     value={renderConfig.burnConfig.lineHeight}
-                                     onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, lineHeight: parseFloat(e.target.value) || 0}}))}
-                                     className="w-full p-2 border dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
-                                   />
-                               </div>
-                               <div>
-                                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Vertical Margin</label>
-                                   <input 
-                                     type="number" 
-                                     value={renderConfig.burnConfig.marginV}
-                                     onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, marginV: parseInt(e.target.value) || 0}}))}
-                                     className="w-full p-2 border dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
-                                   />
-                               </div>
-                           </div>
-
-                           <div>
-                               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Background Style</label>
-                               <div className="grid grid-cols-2 gap-2">
-                                   <button 
-                                     onClick={() => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, borderStyle: 1}}))}
-                                     className={`p-2 text-sm rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 1 ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-500 text-blue-700 dark:text-blue-300 font-medium' : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 dark:text-slate-200'}`}
-                                   >
-                                       Outline (Text Shadow)
-                                   </button>
-                                   <button 
-                                     onClick={() => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, borderStyle: 3}}))}
-                                     className={`p-2 text-sm rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 3 ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-500 text-blue-700 dark:text-blue-300 font-medium' : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 dark:text-slate-200'}`}
-                                   >
-                                       Opaque Box
-                                   </button>
-                               </div>
-                           </div>
-                       </div>
-                   )}
 
                    <div className="pt-2">
                        <button 
