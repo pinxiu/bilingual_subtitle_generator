@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Cue, RenderConfig } from '../types';
-import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle, Link2, Unlink2, Download, Languages } from 'lucide-react';
+import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle, Link2, Unlink2, Download, Languages, ChevronLeft, FileVideo } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE } from '../constants';
 // @ts-ignore - opencc-js doesn't have TypeScript definitions
@@ -9,12 +9,14 @@ import { Converter } from 'opencc-js';
 
 interface SubtitleEditorProps {
   jobId: string;
+  originalFilename: string;
   initialCues: Cue[];
   videoUrl: string;
   onContinue: (config: RenderConfig) => void;
+  onBack: () => void;
 }
 
-export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCues, videoUrl, onContinue }) => {
+export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalFilename, initialCues, videoUrl, onContinue, onBack }) => {
   const [cues, setCues] = useState<Cue[]>(initialCues);
   const [history, setHistory] = useState<Cue[][]>([]);
   const [activeCueIndex, setActiveCueIndex] = useState<number>(-1);
@@ -380,6 +382,9 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
       <div className="bg-white rounded-xl shadow-xl overflow-hidden border border-slate-200">
         <div className="bg-slate-900 p-4 flex justify-between items-center text-white">
           <div className="flex items-center gap-4">
+            <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-800 transition-colors" title="Back to projects">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <span className="bg-blue-600 text-xs px-2 py-1 rounded">Editor</span>
               Subtitle Review
@@ -387,45 +392,6 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
           </div>
           
           <div className="flex gap-2 items-center">
-            {/* Display language toggle */}
-            <div className="hidden sm:flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-300">
-              <Languages className="w-3.5 h-3.5 text-slate-400" />
-              <span className="mr-1">Show</span>
-              <button
-                type="button"
-                onClick={() => handleDisplayModeChange('en')}
-                className={`px-2 py-0.5 rounded-md transition-colors ${
-                  displayMode === 'en'
-                    ? 'bg-blue-500 text-white'
-                    : 'text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                EN
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDisplayModeChange('zh')}
-                className={`px-2 py-0.5 rounded-md transition-colors ${
-                  displayMode === 'zh'
-                    ? 'bg-blue-500 text-white'
-                    : 'text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                ZH
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDisplayModeChange('bilingual')}
-                className={`px-2 py-0.5 rounded-md transition-colors ${
-                  displayMode === 'bilingual'
-                    ? 'bg-blue-500 text-white'
-                    : 'text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                EN+ZH
-              </button>
-            </div>
-
             <button 
               onClick={() => setAutoLinkSegments(!autoLinkSegments)}
               className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-700 ${autoLinkSegments ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
@@ -467,79 +433,144 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, initialCu
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 h-[650px]">
+        <div className="grid grid-cols-1 lg:grid-cols-5 h-[700px]">
           {/* Video Player Column */}
-          <div className="lg:col-span-3 bg-black flex items-center justify-center relative group">
-            <video 
-              ref={videoRef}
-              src={`http://localhost:3001${videoUrl}`} 
-              controls 
-              className="max-h-full w-full"
-              onTimeUpdate={handleTimeUpdate}
-            />
-            
-            {/* Overlay Preview */}
-            {activeCueIndex !== -1 && cues[activeCueIndex] && (
-              <div className="absolute bottom-12 left-0 right-0 px-8 text-center pointer-events-none">
-                 <div className="inline-block bg-black/70 backdrop-blur-sm p-3 rounded-xl">
-                   {/* Overlay EN */}
-                   {(displayMode === 'en' || displayMode === 'bilingual') && cues[activeCueIndex].en && (
-                     <p className="text-white text-lg sm:text-xl font-medium drop-shadow-md leading-relaxed">
-                       {cues[activeCueIndex].en}
-                     </p>
-                   )}
-                   {/* Overlay ZH */}
-                   {(displayMode === 'zh' || displayMode === 'bilingual') && cues[activeCueIndex].zh && (
-                     <p className="text-yellow-400 text-lg sm:text-xl font-medium drop-shadow-md leading-relaxed mt-1">
-                       {cues[activeCueIndex].zh}
-                     </p>
-                   )}
-                 </div>
+          <div className="lg:col-span-2 bg-black flex flex-col relative group">
+            <div className="h-2/3 flex items-start justify-center relative"> {/* Added wrapper for video to take available space */}
+                <video 
+                  ref={videoRef}
+                  src={`http://localhost:3001${videoUrl}`} 
+                  controls 
+                  className="w-full h-auto max-h-full"
+                  onTimeUpdate={handleTimeUpdate}
+                />
+                
+                {/* Overlay Preview */}
+                {activeCueIndex !== -1 && cues[activeCueIndex] && (
+                  <div className="absolute bottom-20 left-0 right-0 px-8 text-center pointer-events-none">
+                     <div className="inline-block bg-black/70 backdrop-blur-sm p-3 rounded-xl">
+                       {/* Overlay EN */}
+                       {(displayMode === 'en' || displayMode === 'bilingual') && cues[activeCueIndex].en && (
+                         <p className="text-white text-base sm:text-lg font-medium drop-shadow-md leading-relaxed">
+                           {cues[activeCueIndex].en}
+                         </p>
+                       )}
+                       {/* Overlay ZH */}
+                       {(displayMode === 'zh' || displayMode === 'bilingual') && cues[activeCueIndex].zh && (
+                         <p className="text-yellow-400 text-base sm:text-lg font-medium drop-shadow-md leading-relaxed mt-1">
+                           {cues[activeCueIndex].zh}
+                         </p>
+                       )}
+                     </div>
+                  </div>
+                )}
+            </div>
+
+            {/* NEW: Video Properties and Subtitle Settings */}
+            <div className="bg-white p-4 border-t border-slate-200 overflow-y-auto h-1/3">
+              <h3 className="text-sm font-semibold mb-3 text-slate-700 flex items-center gap-2">
+                <FileVideo className="w-4 h-4" />
+                Video Properties
+              </h3>
+              <p className="text-xs text-slate-500 mb-4 truncate" title={originalFilename}>
+                <span className="font-medium text-slate-600">File:</span> {originalFilename}
+              </p>
+
+              {/* Subtitle Settings Section (MOVED HERE) */}
+              {/* Subtitle Settings Section (MOVED HERE) */}
+              <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 mt-4">
+                  <h3 className="text-sm font-semibold mb-3 text-slate-700 flex items-center gap-2">
+                    <Settings className="w-4 h-4 mr-2" />
+                    Subtitle Settings
+                  </h3>
+                  <div className="space-y-3">
+                      {/* Display language toggle */}
+                      <div className="flex items-center justify-between text-sm">
+                          <label className="text-slate-600 font-medium text-xs">Display</label>
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 shadow-sm rounded-lg p-1 text-xs text-slate-600">
+                              <button
+                                  type="button"
+                                  onClick={() => handleDisplayModeChange('en')}
+                                  className={`px-2 py-0.5 rounded-md transition-colors ${
+                                  displayMode === 'en'
+                                      ? 'bg-blue-500 text-white shadow-sm'
+                                      : 'hover:bg-slate-50'
+                                  }`}
+                              >
+                                  English
+                              </button>
+                              <button
+                                  type="button"
+                                  onClick={() => handleDisplayModeChange('zh')}
+                                  className={`px-2 py-0.5 rounded-md transition-colors ${
+                                  displayMode === 'zh'
+                                      ? 'bg-blue-500 text-white shadow-sm'
+                                      : 'hover:bg-slate-50'
+                                  }`}
+                              >
+                                  Chinese
+                              </button>
+                              <button
+                                  type="button"
+                                  onClick={() => handleDisplayModeChange('bilingual')}
+                                  className={`px-2 py-0.5 rounded-md transition-colors ${
+                                  displayMode === 'bilingual'
+                                      ? 'bg-blue-500 text-white shadow-sm'
+                                      : 'hover:bg-slate-50'
+                                  }`}
+                              >
+                                  Bilingual
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Chinese variant toggle */}
+                      {(displayMode === 'zh' || displayMode === 'bilingual') && (
+                          <div className="flex items-center justify-between text-sm animate-in fade-in duration-300">
+                              <label className="text-slate-600 font-medium text-xs">Variant</label>
+                              <div className="inline-flex items-center gap-1 bg-white border border-slate-200 shadow-sm rounded-lg p-1 text-xs">
+                                  <button
+                                      type="button"
+                                      onClick={() => handleChineseVariantChange('simplified')}
+                                      disabled={!converters.s2t || !converters.t2s}
+                                      className={`px-2 py-0.5 rounded-md transition-colors ${
+                                      chineseVariant === 'simplified'
+                                          ? 'bg-green-500 text-white shadow-sm'
+                                          : 'hover:bg-slate-50'
+                                      } disabled:opacity-30 disabled:cursor-not-allowed`}
+                                  >
+                                      Simplified
+                                  </button>
+                                  <button
+                                      type="button"
+                                      onClick={() => handleChineseVariantChange('traditional')}
+                                      disabled={!converters.s2t || !converters.t2s}
+                                      className={`px-2 py-0.5 rounded-md transition-colors ${
+                                      chineseVariant === 'traditional'
+                                          ? 'bg-green-500 text-white shadow-sm'
+                                          : 'hover:bg-slate-50'
+                                      } disabled:opacity-30 disabled:cursor-not-allowed`}
+                                  >
+                                      Traditional
+                                  </button>
+                              </div>
+                          </div>
+                      )}
+                  </div>
               </div>
-            )}
+            </div>
           </div>
 
           {/* Subtitle List Column */}
-          <div className="lg:col-span-2 bg-slate-50 overflow-y-auto border-l border-slate-200 p-4">
-             {/* List header with Chinese variant toggle */}
-             <div className="mb-3 flex items-center justify-between gap-2 text-xs text-slate-500">
-               <span className="font-semibold text-slate-600 uppercase tracking-wide">
-                 Subtitle Segments
-               </span>
-               {(displayMode === 'zh' || displayMode === 'bilingual') && (
-                 <div className="inline-flex items-center gap-1 bg-white/60 border border-slate-200 rounded-full px-2 py-0.5">
-                   <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                     中文字符集
-                   </span>
-                   <button
-                     type="button"
-                     onClick={() => handleChineseVariantChange('simplified')}
-                     disabled={!converters.s2t || !converters.t2s}
-                     className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
-                       chineseVariant === 'simplified'
-                         ? 'bg-green-500 text-white'
-                         : 'text-slate-500 hover:bg-slate-100'
-                     } disabled:opacity-30 disabled:cursor-not-allowed`}
-                     title="切换为简体中文"
-                   >
-                     简
-                   </button>
-                   <button
-                     type="button"
-                     onClick={() => handleChineseVariantChange('traditional')}
-                     disabled={!converters.s2t || !converters.t2s}
-                     className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
-                       chineseVariant === 'traditional'
-                         ? 'bg-green-500 text-white'
-                         : 'text-slate-500 hover:bg-slate-100'
-                     } disabled:opacity-30 disabled:cursor-not-allowed`}
-                     title="切换为繁體中文"
-                   >
-                     繁
-                   </button>
-                 </div>
-               )}
-             </div>
+          <div className="lg:col-span-3 bg-slate-50 overflow-y-auto border-l border-slate-200 p-4">
+
+            
+            {/* List header */}
+            <div className="mb-3 flex items-center justify-between gap-2 text-xs text-slate-500">
+              <span className="font-semibold text-slate-600 uppercase tracking-wide">
+                Subtitle Segments
+              </span>
+            </div>
 
              {/* Add Start Button */}
              <button 

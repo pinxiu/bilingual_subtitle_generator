@@ -178,7 +178,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center p-3 bg-blue-600 rounded-2xl shadow-lg mb-4">
@@ -466,9 +466,11 @@ function App() {
           {jobStatus?.status === 'waiting_for_approval' && jobStatus.result && (
             <SubtitleEditor 
               jobId={jobStatus.id}
+              originalFilename={jobStatus.originalFilename}
               initialCues={jobStatus.result.previewCues}
               videoUrl={jobStatus.result.rawVideoUrl || ''}
               onContinue={handleEditorContinue}
+              onBack={() => handleTabChange('resume')}
             />
           )}
           
