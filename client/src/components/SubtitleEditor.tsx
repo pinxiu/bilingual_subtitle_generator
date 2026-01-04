@@ -379,7 +379,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
 
   return (
     <div className="mt-6 animate-in fade-in zoom-in duration-300 relative">
-      <div className="bg-white rounded-xl shadow-xl overflow-hidden border border-slate-200">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl overflow-hidden border border-slate-200 dark:border-slate-700">
         <div className="bg-slate-900 p-4 flex justify-between items-center text-white">
           <div className="flex items-center gap-4">
             <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-800 transition-colors" title="Back to projects">
@@ -467,34 +467,34 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
             </div>
 
             {/* NEW: Video Properties and Subtitle Settings */}
-            <div className="bg-white p-4 border-t border-slate-200 overflow-y-auto h-1/3">
-              <h3 className="text-sm font-semibold mb-3 text-slate-700 flex items-center gap-2">
+            <div className="bg-white dark:bg-slate-800 p-4 border-t border-slate-200 dark:border-slate-700 overflow-y-auto h-1/3">
+              <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-200 flex items-center gap-2">
                 <FileVideo className="w-4 h-4" />
                 Video Properties
               </h3>
-              <p className="text-xs text-slate-500 mb-4 truncate" title={originalFilename}>
-                <span className="font-medium text-slate-600">File:</span> {originalFilename}
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 truncate" title={originalFilename}>
+                <span className="font-medium text-slate-600 dark:text-slate-300">File:</span> {originalFilename}
               </p>
 
               {/* Subtitle Settings Section (MOVED HERE) */}
               {/* Subtitle Settings Section (MOVED HERE) */}
-              <div className="bg-slate-100 border border-slate-200 rounded-xl p-4 mt-4">
-                  <h3 className="text-sm font-semibold mb-3 text-slate-700 flex items-center gap-2">
+              <div className="bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 mt-4">
+                  <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-200 flex items-center gap-2">
                     <Settings className="w-4 h-4 mr-2" />
                     Subtitle Settings
                   </h3>
                   <div className="space-y-3">
                       {/* Display language toggle */}
                       <div className="flex items-center justify-between text-sm">
-                          <label className="text-slate-600 font-medium text-xs">Display</label>
-                          <div className="flex items-center gap-1 bg-white border border-slate-200 shadow-sm rounded-lg p-1 text-xs text-slate-600">
+                          <label className="text-slate-600 dark:text-slate-300 font-medium text-xs">Display</label>
+                          <div className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-sm rounded-lg p-1 text-xs text-slate-600 dark:text-slate-300">
                               <button
                                   type="button"
                                   onClick={() => handleDisplayModeChange('en')}
                                   className={`px-2 py-0.5 rounded-md transition-colors ${
                                   displayMode === 'en'
                                       ? 'bg-blue-500 text-white shadow-sm'
-                                      : 'hover:bg-slate-50'
+                                      : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                                   }`}
                               >
                                   English
@@ -505,7 +505,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                                   className={`px-2 py-0.5 rounded-md transition-colors ${
                                   displayMode === 'zh'
                                       ? 'bg-blue-500 text-white shadow-sm'
-                                      : 'hover:bg-slate-50'
+                                      : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                                   }`}
                               >
                                   Chinese
@@ -516,7 +516,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                                   className={`px-2 py-0.5 rounded-md transition-colors ${
                                   displayMode === 'bilingual'
                                       ? 'bg-blue-500 text-white shadow-sm'
-                                      : 'hover:bg-slate-50'
+                                      : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                                   }`}
                               >
                                   Bilingual
@@ -527,8 +527,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                       {/* Chinese variant toggle */}
                       {(displayMode === 'zh' || displayMode === 'bilingual') && (
                           <div className="flex items-center justify-between text-sm animate-in fade-in duration-300">
-                              <label className="text-slate-600 font-medium text-xs">Variant</label>
-                              <div className="inline-flex items-center gap-1 bg-white border border-slate-200 shadow-sm rounded-lg p-1 text-xs">
+                              <label className="text-slate-600 dark:text-slate-300 font-medium text-xs">Variant</label>
+                              <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-sm rounded-lg p-1 text-xs">
                                   <button
                                       type="button"
                                       onClick={() => handleChineseVariantChange('simplified')}
@@ -536,7 +536,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                                       className={`px-2 py-0.5 rounded-md transition-colors ${
                                       chineseVariant === 'simplified'
                                           ? 'bg-green-500 text-white shadow-sm'
-                                          : 'hover:bg-slate-50'
+                                          : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                                       } disabled:opacity-30 disabled:cursor-not-allowed`}
                                   >
                                       Simplified
@@ -548,7 +548,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                                       className={`px-2 py-0.5 rounded-md transition-colors ${
                                       chineseVariant === 'traditional'
                                           ? 'bg-green-500 text-white shadow-sm'
-                                          : 'hover:bg-slate-50'
+                                          : 'hover:bg-slate-50 dark:hover:bg-slate-700'
                                       } disabled:opacity-30 disabled:cursor-not-allowed`}
                                   >
                                       Traditional
@@ -562,12 +562,12 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
           </div>
 
           {/* Subtitle List Column */}
-          <div className="lg:col-span-3 bg-slate-50 overflow-y-auto border-l border-slate-200 p-4">
+          <div className="lg:col-span-3 bg-slate-50 dark:bg-slate-900 overflow-y-auto border-l border-slate-200 dark:border-slate-700 p-4">
 
             
             {/* List header */}
-            <div className="mb-3 flex items-center justify-between gap-2 text-xs text-slate-500">
-              <span className="font-semibold text-slate-600 uppercase tracking-wide">
+            <div className="mb-3 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">
                 Subtitle Segments
               </span>
             </div>
@@ -575,7 +575,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
              {/* Add Start Button */}
              <button 
                 onClick={() => handleInsertCue(0, 'start')}
-                className="w-full py-2 mb-4 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-dashed border-slate-300 rounded-lg transition-colors"
+                className="w-full py-2 mb-4 flex items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg transition-colors"
              >
                 <PlusCircle className="w-4 h-4" />
                 Add Segment at Start
@@ -589,16 +589,16 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                 onClick={() => handleCueClick(idx)}
                 className={`p-4 rounded-xl border-2 transition-all group cursor-pointer ${
                   activeCueIndex === idx 
-                    ? 'border-blue-500 bg-white shadow-md ring-1 ring-blue-500' 
-                    : 'border-transparent bg-white hover:border-slate-300 shadow-sm'
+                    ? 'border-blue-500 bg-white dark:bg-slate-800 shadow-md ring-1 ring-blue-500' 
+                    : 'border-transparent bg-white dark:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 shadow-sm'
                 }`}
                >
                  {/* Flex wrap added to prevent overflow */}
                  <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
-                    <div className="flex gap-2 items-center shrink-0 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                    <div className="flex gap-2 items-center shrink-0 bg-slate-50 dark:bg-slate-700/50 p-1.5 rounded-lg border border-slate-100 dark:border-slate-700">
                       <button 
                         onClick={(e) => handleSetTime(idx, 'start', e)}
-                        className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50 transition-colors"
+                        className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
                         title="Set start to current video time"
                       >
                          <MapPin className="w-3.5 h-3.5" />
@@ -608,19 +608,19 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                         value={cue.start}
                         onClick={(e) => e.stopPropagation()} 
                         onChange={(e) => updateCue(idx, 'start', e.target.value)}
-                        className="w-24 text-xs font-mono bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        className="w-24 text-xs font-mono bg-white dark:bg-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded px-1.5 py-0.5 text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                       />
-                      <span className="text-slate-300 text-xs">→</span>
+                      <span className="text-slate-300 dark:text-slate-600 text-xs">→</span>
                       <input 
                         type="text" 
                         value={cue.end}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => updateCue(idx, 'end', e.target.value)}
-                        className="w-24 text-xs font-mono bg-white border border-slate-200 rounded px-1.5 py-0.5 text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        className="w-24 text-xs font-mono bg-white dark:bg-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded px-1.5 py-0.5 text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                       />
                       <button 
                         onClick={(e) => handleSetTime(idx, 'end', e)}
-                        className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50 transition-colors"
+                        className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
                         title="Set end to current video time"
                       >
                          <MapPin className="w-3.5 h-3.5" />
@@ -630,7 +630,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
                           onClick={(e) => handleSplitCue(idx, e)}
-                          className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-md transition-colors"
+                          className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors"
                           title="Split at current video time"
                         >
                           <Scissors className="w-4 h-4" />
@@ -638,7 +638,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                       {idx > 0 && (
                         <button 
                           onClick={(e) => handleMergePrevious(idx, e)}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-md transition-colors"
                           title="Merge with previous"
                         >
                           <Merge className="w-4 h-4" />
@@ -646,7 +646,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                       )}
                       <button 
                         onClick={(e) => handleDeleteCue(idx, e)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors"
                         title="Delete"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -663,7 +663,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                          onClick={(e) => e.stopPropagation()}
                          onChange={(e) => updateCue(idx, 'en', e.target.value)}
                          rows={2}
-                         className="w-full text-sm p-3 pb-6 border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none resize-none font-medium text-slate-800 placeholder-slate-400 transition-all"
+                         className="w-full text-sm p-3 pb-6 border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/50 outline-none resize-none font-medium text-slate-800 placeholder-slate-400 transition-all"
                          placeholder="English text..."
                        />
                        <span className="absolute bottom-2 right-3 text-[10px] text-slate-400 font-mono">
@@ -679,7 +679,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                          onClick={(e) => e.stopPropagation()}
                          onChange={(e) => updateCue(idx, 'zh', e.target.value)}
                          rows={2}
-                         className="w-full text-sm p-3 pb-6 border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none resize-none text-slate-600 placeholder-slate-400 transition-all"
+                         className="w-full text-sm p-3 pb-6 border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/50 outline-none resize-none text-slate-600 placeholder-slate-400 transition-all"
                          placeholder="Chinese text..."
                        />
                        <span className="absolute bottom-2 right-3 text-[10px] text-slate-400 font-mono">
@@ -692,10 +692,10 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                
                {/* Add Between Button - Visual divider that appears on hover */}
                <div className="h-4 -my-3 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity z-10 relative group/add">
-                   <div className="absolute inset-x-0 h-px bg-blue-200"></div>
+                   <div className="absolute inset-x-0 h-px bg-blue-200 dark:bg-blue-900"></div>
                    <button 
                      onClick={(e) => { e.stopPropagation(); handleInsertCue(idx, 'after'); }}
-                     className="relative bg-white text-blue-500 border border-blue-200 rounded-full p-1.5 shadow-sm hover:bg-blue-50 hover:scale-110 transition-transform"
+                     className="relative bg-white dark:bg-slate-700 text-blue-500 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-full p-1.5 shadow-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:scale-110 transition-transform"
                      title="Insert segment here"
                    >
                        <Plus className="w-4 h-4" />
@@ -708,7 +708,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
              {/* Add End Button */}
              <button 
                 onClick={() => handleInsertCue(cues.length - 1, 'end')}
-                className="w-full py-2 mt-4 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-dashed border-slate-300 rounded-lg transition-colors"
+                className="w-full py-2 mt-4 flex items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg transition-colors"
              >
                 <PlusCircle className="w-4 h-4" />
                 Add Segment at End
@@ -720,7 +720,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
       {/* Render Config Modal */}
       {showRenderModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
                <div className="bg-slate-900 p-4 text-white flex justify-between items-center shrink-0">
                    <h3 className="font-semibold text-lg">Render Settings</h3>
                    <button onClick={() => setShowRenderModal(false)} className="text-slate-400 hover:text-white">
@@ -733,7 +733,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                    {/* Preview Box */}
                    {renderConfig.renderBurn && (
                        <div className="space-y-2">
-                           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Burn Preview</label>
+                           <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Burn Preview</label>
                            <div className="bg-slate-800 rounded-lg overflow-hidden relative aspect-video flex justify-center w-full border border-slate-700 shadow-inner group">
                                 <div className="absolute inset-0 opacity-20 bg-[url('https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80')] bg-cover bg-center grayscale group-hover:grayscale-0 transition-all duration-700"></div>
                                 
@@ -784,8 +784,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
 
                    {/* Outputs */}
                    <div className="space-y-3">
-                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Output Files</label>
-                       <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50">
+                       <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Output Files</label>
+                       <label className="flex items-center gap-3 p-3 border dark:border-slate-700 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50">
                            <input 
                              type="checkbox" 
                              checked={renderConfig.renderSoft}
@@ -793,11 +793,11 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                              className="w-5 h-5 text-blue-600 rounded" 
                            />
                            <div>
-                               <div className="font-medium text-slate-800">Soft Subtitles (Muxed)</div>
-                               <div className="text-xs text-slate-500">Embedded subtitles, switchable on/off</div>
+                               <div className="font-medium text-slate-800 dark:text-slate-200">Soft Subtitles (Muxed)</div>
+                               <div className="text-xs text-slate-500 dark:text-slate-400">Embedded subtitles, switchable on/off</div>
                            </div>
                        </label>
-                       <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50">
+                       <label className="flex items-center gap-3 p-3 border dark:border-slate-700 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50">
                            <input 
                              type="checkbox" 
                              checked={renderConfig.renderBurn}
@@ -805,8 +805,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                              className="w-5 h-5 text-blue-600 rounded" 
                            />
                            <div>
-                               <div className="font-medium text-slate-800">Hard Subtitles (Burned)</div>
-                               <div className="text-xs text-slate-500">Permanently drawn onto video</div>
+                               <div className="font-medium text-slate-800 dark:text-slate-200">Hard Subtitles (Burned)</div>
+                               <div className="text-xs text-slate-500 dark:text-slate-400">Permanently drawn onto video</div>
                            </div>
                        </label>
                    </div>
@@ -814,52 +814,52 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                    {/* Burn Settings */}
                    {renderConfig.renderBurn && (
                        <div className="space-y-4 animate-in slide-in-from-top-2">
-                           <div className="h-px bg-slate-200"></div>
-                           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Burn Appearance</label>
+                           <div className="h-px bg-slate-200 dark:bg-slate-700"></div>
+                           <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Burn Appearance</label>
                            
                            <div className="grid grid-cols-3 gap-4">
                                <div>
-                                   <label className="block text-xs font-medium text-slate-600 mb-1">Font Size</label>
+                                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Font Size</label>
                                    <input 
                                      type="number" 
                                      value={renderConfig.burnConfig.fontSize}
                                      onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, fontSize: parseInt(e.target.value) || 0}}))}
-                                     className="w-full p-2 border rounded"
+                                     className="w-full p-2 border dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
                                    />
                                </div>
                                <div>
-                                   <label className="block text-xs font-medium text-slate-600 mb-1">Line Height</label>
+                                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Line Height</label>
                                    <input 
                                      type="number"
                                      step="0.1"
                                      value={renderConfig.burnConfig.lineHeight}
                                      onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, lineHeight: parseFloat(e.target.value) || 0}}))}
-                                     className="w-full p-2 border rounded"
+                                     className="w-full p-2 border dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
                                    />
                                </div>
                                <div>
-                                   <label className="block text-xs font-medium text-slate-600 mb-1">Vertical Margin</label>
+                                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Vertical Margin</label>
                                    <input 
                                      type="number" 
                                      value={renderConfig.burnConfig.marginV}
                                      onChange={e => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, marginV: parseInt(e.target.value) || 0}}))}
-                                     className="w-full p-2 border rounded"
+                                     className="w-full p-2 border dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded"
                                    />
                                </div>
                            </div>
 
                            <div>
-                               <label className="block text-xs font-medium text-slate-600 mb-1">Background Style</label>
+                               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Background Style</label>
                                <div className="grid grid-cols-2 gap-2">
                                    <button 
                                      onClick={() => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, borderStyle: 1}}))}
-                                     className={`p-2 text-sm rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 1 ? 'bg-blue-50 border-blue-500 text-blue-700 font-medium' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+                                     className={`p-2 text-sm rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 1 ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-500 text-blue-700 dark:text-blue-300 font-medium' : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 dark:text-slate-200'}`}
                                    >
                                        Outline (Text Shadow)
                                    </button>
                                    <button 
                                      onClick={() => setRenderConfig(prev => ({...prev, burnConfig: {...prev.burnConfig, borderStyle: 3}}))}
-                                     className={`p-2 text-sm rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 3 ? 'bg-blue-50 border-blue-500 text-blue-700 font-medium' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+                                     className={`p-2 text-sm rounded border transition-colors ${renderConfig.burnConfig.borderStyle === 3 ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 dark:border-blue-500 text-blue-700 dark:text-blue-300 font-medium' : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 dark:text-slate-200'}`}
                                    >
                                        Opaque Box
                                    </button>

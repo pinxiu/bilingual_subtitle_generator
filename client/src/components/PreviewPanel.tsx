@@ -10,7 +10,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ cues }) => {
 
   return (
     <div className="mt-8">
-      <h3 className="text-lg font-semibold text-slate-800 mb-4">Subtitle Preview</h3>
+      <h3 className="text-lg font-semibold text-slate-800 dark:text-white mb-4">Subtitle Preview</h3>
       <div className="bg-slate-900 rounded-lg p-4 overflow-y-auto max-h-80 shadow-inner">
         <div className="space-y-4">
           {cues.map((cue, idx) => (
