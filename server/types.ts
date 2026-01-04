@@ -18,6 +18,12 @@ export interface Cue {
   zh: string;
 }
 
+export interface Job {
+  id: string;
+  translator: 'gemini' | 'argos'; // Add this line
+  model?: string;
+}
+
 export type SourceLanguage = 'en' | 'zh';
 export type OutputFormat = 'en' | 'zh' | 'bilingual';
 
