@@ -12,6 +12,68 @@ const getVenvPython = () =>
     ? path.join(process.cwd(), '.venv', 'Scripts', 'python.exe')
     : path.join(process.cwd(), '.venv', 'bin', 'python');
 
+const ensureDir = (dir: string) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+};
+
+const writeOptionalTranscriptFiles = (jobDir: string, job: Job) => {
+  let enPath: string | null = null;
+  let zhPath: string | null = null;
+
+  const en = (job as any).enTranscript;
+  const zh = (job as any).zhTranscript;
+
+  if (typeof en === 'string' && en.trim()) {
+    enPath = path.join(jobDir, 'en_script.txt');
+    fs.writeFileSync(enPath, en, 'utf-8');
+  }
+  if (typeof zh === 'string' && zh.trim()) {
+    zhPath = path.join(jobDir, 'zh_script.txt');
+    fs.writeFileSync(zhPath, zh, 'utf-8');
+  }
+
+  return { enPath, zhPath };
+};
+
+type OutputFormat = 'en' | 'zh' | 'bilingual';
+
+const formatCuesForSrt = (cues: any[], outputFormat: OutputFormat, lineCount: number) => {
+  return cues.map((c) => {
+    const en = (c.en || '').trim();
+    const zh = (c.zh || '').trim();
+
+    if (outputFormat === 'en') return { ...c, en, zh: '' };
+    if (outputFormat === 'zh') {
+      const one = zh || en;
+      return { ...c, en: one, zh: '' };
+    }
+
+    // bilingual
+    if (lineCount === 1) {
+      const combined = [en, zh].filter(Boolean).join(' / ');
+      return { ...c, en: combined, zh: '' };
+    }
+    return { ...c, en, zh };
+  });
+};
+
+const formatCuesForPreview = (cues: any[], outputFormat: OutputFormat, lineCount: number) => {
+  return cues.map((c) => {
+    const en = (c.en || '').trim();
+    const zh = (c.zh || '').trim();
+
+    if (outputFormat === 'en') return { ...c, en, zh: '' };
+    if (outputFormat === 'zh') return { ...c, en: '', zh: zh || en };
+
+    // bilingual
+    if (lineCount === 1) {
+      const combined = [en, zh].filter(Boolean).join(' / ');
+      return { ...c, en: combined, zh: '' };
+    }
+    return { ...c, en, zh };
+  });
+};
+
 const runAiService = async (
   args: string[],
   updateJob: (id: string, partial: Partial<Job>) => void,
@@ -25,6 +87,7 @@ const runAiService = async (
       env: {
         ...process.env,
         STANZA_RESOURCES_DIR: path.join(process.cwd(), '.stanza'),
+        PYTORCH_ENABLE_MPS_FALLBACK: process.env.PYTORCH_ENABLE_MPS_FALLBACK || '1',
       },
     });
 
@@ -78,18 +141,30 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
   const srtPath = path.join(jobDir, 'bilingual.srt');
 
   try {
-    await runAiService([inputPath, srtPath], updateJob, job.id);
+    ensureDir(jobDir);
+
+    const { enPath, zhPath } = writeOptionalTranscriptFiles(jobDir, job);
+
+    const args: string[] = [];
+    if (enPath) args.push('--en_script', enPath);
+    if (zhPath) args.push('--zh_script', zhPath);
+    args.push(inputPath, srtPath);
+
+    await runAiService(args, updateJob, job.id);
 
     if (!fs.existsSync(srtPath)) throw new Error('SRT file was not generated.');
     const srtContent = fs.readFileSync(srtPath, 'utf-8');
     const cues = parseSrt(srtContent);
 
-    const processedCues = cues.map((c) => {
-      const final = { ...c };
-      if (job.outputFormat === 'en') final.zh = '';
-      if (job.outputFormat === 'zh') final.en = '';
-      return final;
-    });
+    const outputFormat = ((job as any).outputFormat || 'bilingual') as OutputFormat;
+    const lineCount = ((job as any).lineCount === 1 ? 1 : 2) as number;
+
+    // Write final SRT according to selected options (so burn/export uses correct layout)
+    const srtCues = formatCuesForSrt(cues, outputFormat, lineCount);
+    fs.writeFileSync(srtPath, buildSrt(srtCues), 'utf-8');
+
+    // Preview cues (UI-friendly)
+    const previewCues = formatCuesForPreview(cues, outputFormat, lineCount);
 
     updateJob(job.id, {
       status: 'waiting_for_approval',
@@ -98,7 +173,7 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
       message: 'Waiting for subtitle review',
       result: {
         rawVideoUrl: `/api/stream/${job.id}`,
-        previewCues: processedCues,
+        previewCues,
       },
     });
   } catch (error: any) {
@@ -111,13 +186,15 @@ export const processJobInitial = async (job: Job, updateJob: (id: string, partia
   }
 };
 
-// PART 1.5: Re-translate existing SRT (use ai_service.py, not simulation)
+// PART 1.5: Re-translate existing SRT (use ai_service.py)
 export const processJobRetranslate = async (job: Job, updateJob: (id: string, partial: Partial<Job>) => void) => {
   const jobDir = path.join(DATA_DIR, job.id);
   const inputSrtPath = path.join(jobDir, 'input.srt');
   const outputSrtPath = path.join(jobDir, 'bilingual.srt');
 
   try {
+    ensureDir(jobDir);
+
     updateJob(job.id, {
       status: 'processing',
       stage: 'translate',
@@ -129,26 +206,26 @@ export const processJobRetranslate = async (job: Job, updateJob: (id: string, pa
       throw new Error(`Input SRT not found: ${inputSrtPath}`);
     }
 
-    /**
-     * We reuse ai_service.py by giving it an SRT input instead of audio/video.
-     * This requires ai_service.py to support:
-     *   python ai_service.py --input_srt <inputSrtPath> <outputSrtPath>
-     *
-     * If your ai_service.py instead uses a different flag, adjust args below.
-     */
-    await runAiService(['--input_srt', inputSrtPath, outputSrtPath], updateJob, job.id);
+    const { enPath, zhPath } = writeOptionalTranscriptFiles(jobDir, job);
+
+    const args: string[] = ['--input_srt', inputSrtPath];
+    if (enPath) args.push('--en_script', enPath);
+    if (zhPath) args.push('--zh_script', zhPath);
+    args.push(outputSrtPath);
+
+    await runAiService(args, updateJob, job.id);
 
     if (!fs.existsSync(outputSrtPath)) throw new Error('Bilingual SRT file was not generated.');
     const outContent = fs.readFileSync(outputSrtPath, 'utf-8');
     const improvedCues = parseSrt(outContent);
 
-    // Respect output format filtering as before
-    const processedCues = improvedCues.map((c) => {
-      const final = { ...c };
-      if (job.outputFormat === 'en') final.zh = '';
-      if (job.outputFormat === 'zh') final.en = '';
-      return final;
-    });
+    const outputFormat = ((job as any).outputFormat || 'bilingual') as OutputFormat;
+    const lineCount = ((job as any).lineCount === 1 ? 1 : 2) as number;
+
+    const srtCues = formatCuesForSrt(improvedCues, outputFormat, lineCount);
+    fs.writeFileSync(outputSrtPath, buildSrt(srtCues), 'utf-8');
+
+    const previewCues = formatCuesForPreview(improvedCues, outputFormat, lineCount);
 
     updateJob(job.id, {
       status: 'waiting_for_approval',
@@ -157,7 +234,7 @@ export const processJobRetranslate = async (job: Job, updateJob: (id: string, pa
       message: 'Improved translation ready for review',
       result: {
         rawVideoUrl: `/api/stream/${job.id}`,
-        previewCues: processedCues,
+        previewCues,
       },
     });
   } catch (error: any) {
@@ -201,6 +278,8 @@ export const processJobFinalize = async (
   };
 
   try {
+    ensureDir(jobDir);
+
     if (safeConfig.renderSoft) {
       updateJob(job.id, { status: 'processing', stage: 'render_soft', progress: 85, message: 'Muxing soft subtitles stream...' });
       await new Promise<void>((resolve, reject) => {

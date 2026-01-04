@@ -1,4 +1,5 @@
 faster-whisper
+openai-whisper
 argostranslate
 stanza
 transformers
