@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Cue, RenderConfig } from '../types';
-import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle, Link2, Unlink2, Download, Languages, ChevronLeft, FileVideo } from 'lucide-react';
+import { Play, Pause, Save, RotateCw, Check, Trash2, Merge, Clock, Undo2, Scissors, MapPin, Settings, X, Plus, PlusCircle, Link2, Unlink2, Download, Languages, ChevronLeft, FileVideo, Volume2, VolumeX } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE } from '../constants';
 // @ts-ignore - opencc-js doesn't have TypeScript definitions
@@ -41,7 +41,14 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
   // Chinese variant: 'simplified' or 'traditional'
   const [chineseVariant, setChineseVariant] = useState<'simplified' | 'traditional'>('simplified');
 
+  // Video Controls State
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
   
   // Initialize OpenCC converters (lazy-loaded)
   const [converters, setConverters] = useState<{
@@ -83,7 +90,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
     renderSoft: true,
     renderBurn: true,
     burnConfig: {
-      fontSize: 24, // Increased default for better visibility
+      fontSize: 20, // Adjusted default
       fontName: 'Arial',
       primaryColour: '&H00FFFFFF', // White
       outlineColour: '&H80000000', // Black transparent
@@ -98,7 +105,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
   });
 
   const [previewScale, setPreviewScale] = useState(1);
-  const previewBoost = 1.7; // Increased multiplier for even better legibility
+  const previewBoost = 3.2; // Increased multiplier for even better legibility
 
   const updatePreviewScale = () => {
       if (videoRef.current && videoRef.current.videoHeight > 0) {
@@ -127,10 +134,87 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
     return iso.substring(11, 23).replace('.', ',');
   };
 
+  const formatDisplayTime = (seconds: number) => {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      if (h > 0) {
+          return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      }
+      return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value);
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
+  
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const vol = parseFloat(e.target.value);
+      setVolume(vol);
+      if (videoRef.current) {
+          videoRef.current.volume = vol;
+          setIsMuted(vol === 0);
+      }
+  };
+
+  const toggleMute = () => {
+      if (videoRef.current) {
+          const newMuted = !isMuted;
+          setIsMuted(newMuted);
+          videoRef.current.muted = newMuted;
+          if (newMuted) {
+              setVolume(0);
+          } else {
+              setVolume(1);
+              videoRef.current.volume = 1;
+          }
+      }
+  };
+
+  const handlePlaybackRateChange = (rate: number) => {
+      setPlaybackRate(rate);
+      if (videoRef.current) {
+          videoRef.current.playbackRate = rate;
+      }
+  };
+
+  const cyclePlaybackRate = () => {
+      const rates = [0.5, 0.75, 1, 1.25, 1.5, 2];
+      const currentIndex = rates.indexOf(playbackRate);
+      const nextIndex = (currentIndex + 1) % rates.length;
+      handlePlaybackRateChange(rates[nextIndex]);
+  };
+
+  const handleVideoLoad = () => {
+      if (videoRef.current) {
+          const d = videoRef.current.duration;
+          if (Number.isFinite(d)) {
+              setDuration(d);
+          }
+          updatePreviewScale();
+      }
+  };
+
   // Update active cue based on video time
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const currentTime = videoRef.current.currentTime;
+    setCurrentTime(currentTime);
     
     // Sticky selection
     if (activeCueIndex !== -1 && cues[activeCueIndex]) {
@@ -152,6 +236,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
         setActiveCueIndex(index);
     }
   };
+
 
   const handleCueClick = (index: number) => {
     if (videoRef.current) {
@@ -451,16 +536,19 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
         <div className="grid grid-cols-1 lg:grid-cols-5 h-[850px]">
           {/* Video Player Column */}
           <div className="lg:col-span-2 bg-black flex flex-col relative group">
-            <div className="h-[40%] flex items-start justify-center relative bg-black overflow-hidden">
+            <div className="h-[32%] flex items-start justify-center relative bg-black overflow-hidden">
                 {/* Nested relative container that wraps the video content */}
-                <div className="relative">
+                <div className="relative w-full h-full flex items-center justify-center bg-black">
                     <video 
                       ref={videoRef}
                       src={`http://localhost:3001${videoUrl}`} 
-                      controls 
                       className="max-w-full max-h-full block mx-auto"
                       onTimeUpdate={handleTimeUpdate}
-                      onLoadedMetadata={updatePreviewScale}
+                      onLoadedMetadata={handleVideoLoad}
+                      onDurationChange={handleVideoLoad}
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={() => setIsPlaying(false)}
+                      onClick={togglePlay}
                     />
                     
                     {/* Overlay Preview */}
@@ -514,6 +602,69 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                       </div>
                     )}
                 </div>
+            </div>
+
+            {/* Custom Controls */}
+            <div className="bg-slate-900 border-t border-slate-800 p-3 flex flex-col gap-2 shrink-0 select-none">
+               {/* Timeline */}
+               <input 
+                 type="range" 
+                 min="0" 
+                 max={duration || 100} 
+                 value={currentTime} 
+                 onChange={handleSeek}
+                 className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400 focus:outline-none"
+               />
+               
+               <div className="flex items-center justify-between text-white px-1">
+                   <div className="flex items-center gap-4">
+                       <button onClick={togglePlay} className="hover:text-blue-400 transition-colors focus:outline-none">
+                           {isPlaying ? <Pause className="w-5 h-5"/> : <Play className="w-5 h-5"/>}
+                       </button>
+                       
+                       {/* Volume Group */}
+                       <div className="flex items-center gap-2 group/volume">
+                           <button onClick={toggleMute} className="hover:text-blue-400 transition-colors focus:outline-none">
+                               {isMuted || volume === 0 ? <VolumeX className="w-5 h-5"/> : <Volume2 className="w-5 h-5"/>}
+                           </button>
+                           <input 
+                             type="range" 
+                             min="0" 
+                             max="1" 
+                             step="0.05" 
+                             value={isMuted ? 0 : volume} 
+                             onChange={handleVolumeChange} 
+                             className="w-20 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-slate-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-white focus:outline-none" 
+                           />
+                       </div>
+
+                       {/* Playback Speed */}
+                       <div className="relative group/speed">
+                           <button 
+                             onClick={cyclePlaybackRate}
+                             className="text-xs font-medium text-slate-400 hover:text-white transition-colors border border-slate-700 rounded px-2 py-0.5 min-w-[40px]"
+                           >
+                               {playbackRate}x
+                           </button>
+                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 hidden group-hover/speed:flex flex-col bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-20 after:content-[''] after:absolute after:h-1 after:w-full after:top-full after:left-0">
+                               {[0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => (
+                                   <button
+                                       key={rate}
+                                       onClick={() => handlePlaybackRateChange(rate)}
+                                       className={`px-3 py-1.5 text-xs hover:bg-slate-700 text-center transition-colors ${playbackRate === rate ? 'text-blue-400 font-bold bg-slate-700/50' : 'text-slate-300'}`}
+                                   >
+                                       {rate}x
+                                   </button>
+                               ))}
+                           </div>
+                       </div>
+                       
+                       {/* Time Display */}
+                       <div className="text-xs font-mono text-slate-400 ml-2">
+                           {formatDisplayTime(currentTime)} / {formatDisplayTime(duration)}
+                       </div>
+                   </div>
+               </div>
             </div>
 
             {/* NEW: Video Properties and Subtitle Settings */}

@@ -232,9 +232,17 @@ function App() {
 
     try {
       const res = await axios.get<JobStatus>(`${API_BASE}/status/${jobId}`);
-      setJobStatus(res.data);
+      let data = res.data;
 
-      const s = res.data.status;
+      // If we just loaded this job and it's 'done', force it to 'waiting_for_approval'
+      // so the user always sees the editor first.
+      if (data.status === 'done' && !pollIntervalRef.current) {
+          data = { ...data, status: 'waiting_for_approval', stage: 'user_review' };
+      }
+
+      setJobStatus(data);
+
+      const s = data.status;
       if (s === 'done' || s === 'error' || s === 'waiting_for_approval') {
         if (pollIntervalRef.current) {
           window.clearInterval(pollIntervalRef.current);
