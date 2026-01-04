@@ -608,7 +608,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                         value={cue.start}
                         onClick={(e) => e.stopPropagation()} 
                         onChange={(e) => updateCue(idx, 'start', e.target.value)}
-                        className="w-24 text-xs font-mono bg-white dark:bg-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded px-1.5 py-0.5 text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        className="w-28 text-xs font-mono bg-white dark:bg-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded px-1.5 py-0.5 text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                       />
                       <span className="text-slate-300 dark:text-slate-600 text-xs">→</span>
                       <input 
@@ -616,7 +616,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ jobId, originalF
                         value={cue.end}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => updateCue(idx, 'end', e.target.value)}
-                        className="w-24 text-xs font-mono bg-white dark:bg-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded px-1.5 py-0.5 text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        className="w-28 text-xs font-mono bg-white dark:bg-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-600 rounded px-1.5 py-0.5 text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                       />
                       <button 
                         onClick={(e) => handleSetTime(idx, 'end', e)}
