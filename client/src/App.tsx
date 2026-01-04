@@ -8,7 +8,7 @@ import { DownloadSection } from './components/DownloadSection';
 import { SubtitleEditor } from './components/SubtitleEditor';
 import { JobStatus, UploadResponse, SavedJob, RenderConfig, SourceLanguage, OutputFormat } from './types';
 import { API_BASE } from './constants';
-import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles, Type } from 'lucide-react';
+import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles, Type, MoreVertical, Check, X, Edit2 } from 'lucide-react';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'new' | 'resume'>('new');
@@ -34,6 +34,50 @@ function App() {
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollIntervalRef = useRef<number | null>(null);
+
+  // Renaming State
+  const [renamingJobId, setRenamingJobId] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const closeMenu = () => setMenuOpenId(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, []);
+
+  const handleRenameStart = (job: SavedJob, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setRenamingJobId(job.id);
+      setNewName(job.originalFilename);
+      setMenuOpenId(null);
+  };
+
+  const handleRenameSubmit = async (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      if (!renamingJobId || !newName.trim()) return;
+      
+      try {
+          await axios.post(`${API_BASE}/job/${renamingJobId}/rename`, { newName });
+          setRenamingJobId(null);
+          fetchSavedJobs();
+      } catch (err) {
+          console.error("Failed to rename");
+          setError("Failed to rename project");
+      }
+  };
+
+  const handleRenameCancel = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setRenamingJobId(null);
+      setNewName('');
+  };
+  
+  const handleMenuToggle = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setMenuOpenId(prev => prev === id ? null : id);
+  };
 
   // --- Reset when switching tabs ---
   const handleTabChange = (tab: 'new' | 'resume') => {
@@ -392,24 +436,67 @@ function App() {
                         </h3>
                         <div className="grid gap-3 max-h-60 overflow-y-auto">
                             {savedJobs.map(job => (
-                                <button 
+                                <div 
                                   key={job.id}
-                                  onClick={() => handleLoadJob(job.id)}
-                                  className="flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
+                                  onClick={() => renamingJobId !== job.id && handleLoadJob(job.id)}
+                                  className={`flex items-center justify-between p-3 border border-slate-200 rounded-lg transition-all text-left relative ${renamingJobId === job.id ? 'bg-white ring-2 ring-blue-500 border-transparent' : 'hover:border-blue-400 hover:bg-blue-50 cursor-pointer group'}`}
                                 >
-                                    <div>
-                                        <div className="font-medium text-slate-700 group-hover:text-blue-700 truncate max-w-[200px] sm:max-w-md">
-                                            {job.originalFilename}
+                                    {renamingJobId === job.id ? (
+                                        <div className="flex-1 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                            <input 
+                                                type="text"
+                                                value={newName}
+                                                onChange={(e) => setNewName(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') handleRenameSubmit();
+                                                    if (e.key === 'Escape') handleRenameCancel(e as any);
+                                                }}
+                                                autoFocus
+                                                className="flex-1 p-1 border border-slate-300 rounded text-sm focus:outline-none focus:border-blue-500"
+                                            />
+                                            <button onClick={handleRenameSubmit} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check className="w-4 h-4"/></button>
+                                            <button onClick={handleRenameCancel} className="p-1 text-red-600 hover:bg-red-50 rounded"><X className="w-4 h-4"/></button>
                                         </div>
-                                        <div className="text-xs text-slate-400 flex items-center gap-1 mt-1">
-                                            <Clock className="w-3 h-3"/>
-                                            {new Date(job.lastModified).toLocaleString()}
-                                        </div>
-                                    </div>
-                                    <div className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-medium text-slate-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                                        Open
-                                    </div>
-                                </button>
+                                    ) : (
+                                        <>
+                                            <div className="flex-1 min-w-0 mr-4">
+                                                <div className="font-medium text-slate-700 group-hover:text-blue-700 truncate">
+                                                    {job.originalFilename}
+                                                </div>
+                                                <div className="text-xs text-slate-400 flex items-center gap-1 mt-1">
+                                                    <Clock className="w-3 h-3"/>
+                                                    {new Date(job.lastModified).toLocaleString()}
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-2">
+                                                 <div className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-medium text-slate-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                                    Open
+                                                </div>
+                                                <div className="relative">
+                                                    <button 
+                                                        onClick={(e) => handleMenuToggle(job.id, e)}
+                                                        className="p-1.5 hover:bg-slate-200 rounded-md text-slate-400 hover:text-slate-600 transition-colors"
+                                                    >
+                                                        <MoreVertical className="w-4 h-4" />
+                                                    </button>
+                                                    
+                                                    {menuOpenId === job.id && (
+                                                        <div className="absolute right-0 top-full mt-1 w-32 bg-white rounded-lg shadow-xl border border-slate-100 z-10 py-1 animate-in fade-in zoom-in-95 duration-100">
+                                                            <button 
+                                                                onClick={(e) => handleRenameStart(job, e)}
+                                                                className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                                            >
+                                                                <Edit2 className="w-3 h-3" />
+                                                                Rename
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
                             ))}
                         </div>
                     </div>

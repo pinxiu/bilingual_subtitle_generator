@@ -148,9 +148,24 @@ app.get('/api/jobs', (req: any, res: any) => {
 
         if (videoFile) {
            const stats = fs.statSync(path.join(jobDir, 'bilingual.srt'));
+           
+           // Check for metadata
+           let displayName = videoFile;
+           const metaPath = path.join(jobDir, 'metadata.json');
+           if (fs.existsSync(metaPath)) {
+             try {
+               const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+               if (meta.displayName) {
+                 displayName = meta.displayName;
+               }
+             } catch (e) {
+               // ignore corrupted metadata
+             }
+           }
+
            availableJobs.push({
              id: jobId,
-             originalFilename: videoFile, 
+             originalFilename: displayName, 
              createdAt: stats.birthtimeMs,
              lastModified: stats.mtimeMs
            });
@@ -163,6 +178,41 @@ app.get('/api/jobs', (req: any, res: any) => {
     console.error("Failed to list jobs", err);
     res.status(500).json({ error: "Failed to list jobs" });
   }
+});
+
+app.post('/api/job/:jobId/rename', (req: any, res: any) => {
+  const { jobId } = req.params;
+  const { newName } = req.body;
+
+  if (!newName || typeof newName !== 'string' || !newName.trim()) {
+      return res.status(400).json({ error: "Invalid name" });
+  }
+
+  const jobDir = path.join(DATA_DIR, jobId);
+  if (!fs.existsSync(jobDir)) {
+      return res.status(404).json({ error: "Job not found" });
+  }
+
+  const metaPath = path.join(jobDir, 'metadata.json');
+  let meta: any = {};
+  if (fs.existsSync(metaPath)) {
+      try {
+          meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      } catch (e) {
+          // start fresh
+      }
+  }
+
+  meta.displayName = newName.trim();
+  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+
+  // If job is in memory, update it too
+  const job = jobs.get(jobId);
+  if (job) {
+      job.originalFilename = meta.displayName;
+  }
+
+  res.json({ success: true, name: meta.displayName });
 });
 
 app.post('/api/job/:jobId/load', (req: any, res: any) => {
@@ -184,6 +234,20 @@ app.post('/api/job/:jobId/load', (req: any, res: any) => {
     );
     if (!videoFile) return res.status(404).json({error: "Video file missing"});
 
+    // Check for metadata
+    let displayName = videoFile;
+    const metaPath = path.join(jobDir, 'metadata.json');
+    if (fs.existsSync(metaPath)) {
+        try {
+            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            if (meta.displayName) {
+                displayName = meta.displayName;
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
     const videoPath = path.join(jobDir, videoFile);
     const srtPath = path.join(jobDir, 'bilingual.srt');
     const srtContent = fs.readFileSync(srtPath, 'utf-8');
@@ -195,7 +259,7 @@ app.post('/api/job/:jobId/load', (req: any, res: any) => {
         stage: 'user_review',
         progress: 60,
         filePath: videoPath,
-        originalFilename: videoFile,
+        originalFilename: displayName,
         createdAt: Date.now(), 
         result: {
             rawVideoUrl: `/api/stream/${jobId}`,
@@ -293,20 +357,24 @@ app.get('/api/download/:jobId/:type', (req: any, res: any) => {
 
   const { srtFilename, softVideoFilename, burnVideoFilename } = job.result;
 
+  // Generate safe filename from current project name
+  const safeName = job.originalFilename.replace(/[^a-zA-Z0-9.\-_ \u4e00-\u9fa5]/g, '_'); // allow chinese chars too
+  const stem = path.parse(safeName).name;
+
   switch (type) {
     case 'srt':
       // Use output_srt.srt if it exists (filtered version from last render), otherwise fallback to bilingual.srt
       const outputSrtPath = path.join(jobDir, 'output_srt.srt');
       filePath = fs.existsSync(outputSrtPath) ? outputSrtPath : path.join(jobDir, 'bilingual.srt');
-      downloadName = srtFilename || 'subtitles.srt';
+      downloadName = `${stem}.srt`;
       break;
     case 'soft':
       filePath = path.join(jobDir, softVideoFilename || 'output_soft.mp4');
-      downloadName = softVideoFilename || 'video_soft_subs.mp4';
+      downloadName = `${stem}_soft.mp4`;
       break;
     case 'burn':
       filePath = path.join(jobDir, burnVideoFilename || 'output_burned.mp4');
-      downloadName = burnVideoFilename || 'video_burned_subs.mp4';
+      downloadName = `${stem}.mp4`;
       break;
     default:
       return res.status(400).json({ error: 'Invalid type' });
