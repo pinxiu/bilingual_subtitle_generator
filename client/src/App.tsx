@@ -8,7 +8,7 @@ import { DownloadSection } from './components/DownloadSection';
 import { SubtitleEditor } from './components/SubtitleEditor';
 import { JobStatus, UploadResponse, SavedJob, RenderConfig, SourceLanguage, OutputFormat } from './types';
 import { API_BASE } from './constants';
-import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles, Type, MoreVertical, Check, X, Edit2 } from 'lucide-react';
+import { Languages, AlertCircle, FileText, FileVideo, RefreshCw, FolderOpen, Clock, Settings2, AlignLeft, Globe2, ChevronDown, ChevronUp, Sparkles, Type, MoreVertical, Check, X, Edit2, Trash2, Search } from 'lucide-react';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'new' | 'resume'>('new');
@@ -38,11 +38,16 @@ function App() {
   // Renaming State
   const [renamingJobId, setRenamingJobId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{top: number, left: number} | null>(null);
 
   // Close menu when clicking outside
   useEffect(() => {
-    const closeMenu = () => setMenuOpenId(null);
+    const closeMenu = () => {
+        setMenuOpenId(null);
+        setMenuPosition(null);
+    };
     window.addEventListener('click', closeMenu);
     return () => window.removeEventListener('click', closeMenu);
   }, []);
@@ -52,6 +57,7 @@ function App() {
       setRenamingJobId(job.id);
       setNewName(job.originalFilename);
       setMenuOpenId(null);
+      setMenuPosition(null);
   };
 
   const handleRenameSubmit = async (e?: React.MouseEvent) => {
@@ -73,10 +79,38 @@ function App() {
       setRenamingJobId(null);
       setNewName('');
   };
+
+  const handleDeleteProject = async (job: SavedJob, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setMenuOpenId(null);
+      setMenuPosition(null);
+      
+      if (!window.confirm(`Are you sure you want to delete "${job.originalFilename}"? This cannot be undone.`)) {
+          return;
+      }
+
+      try {
+          await axios.delete(`${API_BASE}/job/${job.id}`);
+          fetchSavedJobs();
+      } catch (err) {
+          console.error("Failed to delete job", err);
+          setError("Failed to delete project");
+      }
+  };
   
   const handleMenuToggle = (id: string, e: React.MouseEvent) => {
       e.stopPropagation();
-      setMenuOpenId(prev => prev === id ? null : id);
+      if (menuOpenId === id) {
+          setMenuOpenId(null);
+          setMenuPosition(null);
+      } else {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setMenuOpenId(id);
+          setMenuPosition({
+              top: rect.bottom + 5,
+              left: rect.right - 128 // align right, assuming 128px (w-32) width
+          });
+      }
   };
 
   // --- Reset when switching tabs ---
@@ -219,6 +253,10 @@ function App() {
          setError("Failed to resume processing.");
      }
   };
+
+  const filteredJobs = savedJobs.filter(job => 
+    job.originalFilename.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
@@ -429,75 +467,90 @@ function App() {
           {!jobId && !jobStatus && activeTab === 'resume' && (
             <div className="space-y-8 animate-in fade-in duration-500">
                 {savedJobs.length > 0 && (
-                    <div className="space-y-3">
-                        <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                            <FolderOpen className="w-5 h-5 text-blue-600"/>
-                            Recent Projects (Server)
-                        </h3>
-                        <div className="grid gap-3 max-h-60 overflow-y-auto">
-                            {savedJobs.map(job => (
-                                <div 
-                                  key={job.id}
-                                  onClick={() => renamingJobId !== job.id && handleLoadJob(job.id)}
-                                  className={`flex items-center justify-between p-3 border border-slate-200 rounded-lg transition-all text-left relative ${renamingJobId === job.id ? 'bg-white ring-2 ring-blue-500 border-transparent' : 'hover:border-blue-400 hover:bg-blue-50 cursor-pointer group'}`}
-                                >
-                                    {renamingJobId === job.id ? (
-                                        <div className="flex-1 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                            <input 
-                                                type="text"
-                                                value={newName}
-                                                onChange={(e) => setNewName(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') handleRenameSubmit();
-                                                    if (e.key === 'Escape') handleRenameCancel(e as any);
-                                                }}
-                                                autoFocus
-                                                className="flex-1 p-1 border border-slate-300 rounded text-sm focus:outline-none focus:border-blue-500"
-                                            />
-                                            <button onClick={handleRenameSubmit} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check className="w-4 h-4"/></button>
-                                            <button onClick={handleRenameCancel} className="p-1 text-red-600 hover:bg-red-50 rounded"><X className="w-4 h-4"/></button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <div className="flex-1 min-w-0 mr-4">
-                                                <div className="font-medium text-slate-700 group-hover:text-blue-700 truncate">
-                                                    {job.originalFilename}
-                                                </div>
-                                                <div className="text-xs text-slate-400 flex items-center gap-1 mt-1">
-                                                    <Clock className="w-3 h-3"/>
-                                                    {new Date(job.lastModified).toLocaleString()}
-                                                </div>
+                    <div className="space-y-0">
+                        <div className="flex items-center justify-between mb-3 px-1">
+                             <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                                <FolderOpen className="w-5 h-5 text-blue-600"/>
+                                Recent Projects (Server)
+                            </h3>
+                            <div className="relative">
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                                <input 
+                                    type="text" 
+                                    placeholder="Search projects..." 
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 transition-all"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                            {/* Header */}
+                            <div className="grid grid-cols-12 gap-4 px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                <div className="col-span-6 md:col-span-7 pl-2">Title</div>
+                                <div className="col-span-4 md:col-span-3">Created At</div>
+                                <div className="col-span-2"></div>
+                            </div>
+
+                            {/* List */}
+                            <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100 bg-white">
+                                {filteredJobs.map(job => (
+                                    <div 
+                                      key={job.id}
+                                      onClick={() => renamingJobId !== job.id && handleLoadJob(job.id)}
+                                      className={`grid grid-cols-12 gap-4 px-4 py-3 items-center transition-all cursor-pointer group ${renamingJobId === job.id ? 'bg-white' : 'hover:bg-blue-50'}`}
+                                    >
+                                        {renamingJobId === job.id ? (
+                                            <div className="col-span-12 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                                <input 
+                                                    type="text"
+                                                    value={newName}
+                                                    onChange={(e) => setNewName(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') handleRenameSubmit();
+                                                        if (e.key === 'Escape') handleRenameCancel(e as any);
+                                                    }}
+                                                    autoFocus
+                                                    className="flex-1 p-1.5 border border-slate-300 rounded text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                />
+                                                <button onClick={handleRenameSubmit} className="p-1.5 text-green-600 hover:bg-green-50 rounded"><Check className="w-4 h-4"/></button>
+                                                <button onClick={handleRenameCancel} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><X className="w-4 h-4"/></button>
                                             </div>
-                                            
-                                            <div className="flex items-center gap-2">
-                                                 <div className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-medium text-slate-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                                                    Open
+                                        ) : (
+                                            <>
+                                                {/* Title Column */}
+                                                <div className="col-span-6 md:col-span-7 flex items-center gap-3 min-w-0 pl-2">
+                                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg shrink-0">
+                                                        <FileVideo className="w-4 h-4" />
+                                                    </div>
+                                                    <span className="text-sm font-medium text-slate-700 group-hover:text-blue-700 truncate" title={job.originalFilename}>
+                                                        {job.originalFilename}
+                                                    </span>
                                                 </div>
-                                                <div className="relative">
-                                                    <button 
-                                                        onClick={(e) => handleMenuToggle(job.id, e)}
-                                                        className="p-1.5 hover:bg-slate-200 rounded-md text-slate-400 hover:text-slate-600 transition-colors"
-                                                    >
-                                                        <MoreVertical className="w-4 h-4" />
-                                                    </button>
-                                                    
-                                                    {menuOpenId === job.id && (
-                                                        <div className="absolute right-0 top-full mt-1 w-32 bg-white rounded-lg shadow-xl border border-slate-100 z-10 py-1 animate-in fade-in zoom-in-95 duration-100">
-                                                            <button 
-                                                                onClick={(e) => handleRenameStart(job, e)}
-                                                                className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                                            >
-                                                                <Edit2 className="w-3 h-3" />
-                                                                Rename
-                                                            </button>
-                                                        </div>
-                                                    )}
+
+                                                {/* Date Column */}
+                                                <div className="col-span-4 md:col-span-3 text-sm text-slate-500 flex items-center gap-2">
+                                                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                                    <span className="truncate">{new Date(job.createdAt).toLocaleDateString()} <span className="text-xs opacity-70">{new Date(job.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></span>
                                                 </div>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            ))}
+                                                
+                                                {/* Actions Column */}
+                                                <div className="col-span-2 flex justify-end items-center gap-2 pr-2">
+                                                    <div className="relative">
+                                                        <button 
+                                                            onClick={(e) => handleMenuToggle(job.id, e)}
+                                                            className="p-1.5 hover:bg-slate-200 rounded-md text-slate-400 hover:text-slate-600 transition-colors"
+                                                        >
+                                                            <MoreVertical className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -591,6 +644,37 @@ function App() {
         <p className="text-center text-slate-400 text-sm mt-8">
           Powered by Faster-Whisper, NMT & FFmpeg
         </p>
+
+        {menuOpenId && menuPosition && (
+            <div 
+                className="fixed bg-white rounded-lg shadow-xl border border-slate-100 z-50 py-1 animate-in fade-in zoom-in-95 duration-100 overflow-hidden w-32"
+                style={{ top: menuPosition.top, left: menuPosition.left }}
+                onClick={(e) => e.stopPropagation()}
+            >
+               {(() => {
+                   const job = savedJobs.find(j => j.id === menuOpenId);
+                   if (!job) return null;
+                   return (
+                       <>
+                           <button 
+                                onClick={(e) => handleRenameStart(job, e)}
+                                className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                            >
+                                <Edit2 className="w-3 h-3" />
+                                Rename
+                            </button>
+                            <button 
+                                onClick={(e) => handleDeleteProject(job, e)}
+                                className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                            >
+                                <Trash2 className="w-3 h-3" />
+                                Delete
+                            </button>
+                       </>
+                   )
+               })()}
+            </div>
+        )}
       </div>
     </div>
   );

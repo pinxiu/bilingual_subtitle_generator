@@ -215,6 +215,23 @@ app.post('/api/job/:jobId/rename', (req: any, res: any) => {
   res.json({ success: true, name: meta.displayName });
 });
 
+app.delete('/api/job/:jobId', (req: any, res: any) => {
+  const { jobId } = req.params;
+  const jobDir = path.join(DATA_DIR, jobId);
+
+  if (fs.existsSync(jobDir)) {
+      try {
+          fs.rmSync(jobDir, { recursive: true, force: true });
+      } catch (e) {
+          console.error("Failed to delete job dir", e);
+          return res.status(500).json({ error: "Failed to delete project files" });
+      }
+  }
+
+  jobs.delete(jobId);
+  res.json({ success: true });
+});
+
 app.post('/api/job/:jobId/load', (req: any, res: any) => {
     const { jobId } = req.params;
     if (jobs.has(jobId)) {
